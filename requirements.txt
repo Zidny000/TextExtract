@@ -1,0 +1,18 @@
+pyautogui
+pillow
+# PaddleOCR integration
+paddlepaddle==2.6.2
+paddleocr==2.10.0
+opencv-python
+keyboard
+pyperclip
+mss
+pystray
+pywin32
+winshell
+pyinstaller>=5.13.0
+pyinstaller-hooks-contrib>=2023.10
+screeninfo
+pywin32-ctypes
+pefile
+altgraph
