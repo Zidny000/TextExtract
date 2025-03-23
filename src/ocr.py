@@ -9,52 +9,60 @@ from mss import mss
 from config import DEFAULT_LANGUAGE
 from clipboard import copy_to_clipboard
 
-# Try to import PaddleOCR
+# Try to import pytesseract
 try:
-    from paddleocr import PaddleOCR
+    import pytesseract
+    from pytesseract import TesseractError, Output
 except ImportError:
-    # Create a placeholder PaddleOCR class so the module can be imported
-    class PaddleOCR:
-        def __init__(self, **kwargs):
+    # Create a placeholder pytesseract module so the module can be imported
+    class pytesseract:
+        @staticmethod
+        def image_to_string(*args, **kwargs):
             raise ImportError(
-                "PaddleOCR could not be imported. Please install the required packages:\n"
-                "pip install paddlepaddle==2.6.2 paddleocr==2.10.0"
+                "pytesseract could not be imported. Please install the required packages:\n"
+                "pip install pytesseract"
             )
-        
-        def ocr(self, *args, **kwargs):
-            raise ImportError(
-                "PaddleOCR could not be imported. Please install the required packages:\n"
-                "pip install paddlepaddle==2.6.2 paddleocr==2.10.0"
-            )
-
-# Initialize PaddleOCR - use a lock to prevent multiple initializations
-paddle_lock = threading.Lock()
-_paddle_ocr = None
-
-def get_paddle_ocr():
-    """Get or initialize PaddleOCR instance using a singleton pattern"""
-    global _paddle_ocr
-    with paddle_lock:
-        if _paddle_ocr is None:
-            try:
-                # Initialize PaddleOCR with the appropriate language
-                # For PaddleOCR 2.10.0, we use specific parameters for best compatibility
-                _paddle_ocr = PaddleOCR(
-                    use_angle_cls=True, 
-                    lang=DEFAULT_LANGUAGE,
-                    show_log=False,
-                    use_gpu=False  # Set to True if you have a GPU with CUDA
-                )
-            except ImportError as e:
-                print(f"Error initializing PaddleOCR: {e}")
-                print(f"Please ensure both paddle and paddleocr packages are installed.")
-                print(f"Required versions: paddlepaddle==2.6.2 paddleocr==2.10.0")
-                raise
-            except Exception as e:
-                print(f"Unexpected error initializing PaddleOCR: {e}")
-                raise
+            
+        @staticmethod
+        def get_tesseract_version():
+            return "0.0.0"
     
-    return _paddle_ocr
+    class TesseractError(Exception):
+        pass
+    
+    class Output:
+        DICT = "dict"
+
+# Check for Tesseract executable path on Windows
+if sys.platform.startswith('win'):
+    # Look for bundled Tesseract first
+    bundled_tesseract_path = os.path.abspath(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+        "bundled_tesseract", "tesseract.exe"
+    ))
+    
+    if os.path.exists(bundled_tesseract_path):
+        pytesseract.pytesseract.tesseract_cmd = bundled_tesseract_path
+    else:
+        # Try to find installed Tesseract
+        for path in [
+            r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+            r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+        ]:
+            if os.path.exists(path):
+                pytesseract.pytesseract.tesseract_cmd = path
+                break
+
+# Initialize Tesseract - use a lock to prevent concurrent operations
+tesseract_lock = threading.Lock()
+
+def get_tesseract_version():
+    """Get Tesseract version to verify it's working"""
+    try:
+        return pytesseract.get_tesseract_version()
+    except Exception as e:
+        print(f"Error getting Tesseract version: {e}")
+        return None
 
 def preprocess_image(image):
     """Preprocess image for better OCR results."""
@@ -76,7 +84,7 @@ def preprocess_image(image):
     return image
 
 def extract_text_from_area(x1, y1, x2, y2):
-    """Extract text from the specified screen area using PaddleOCR."""
+    """Extract text from the specified screen area using Tesseract OCR."""
     # Check for invalid coordinates
     if None in (x1, y1, x2, y2):
         print("Invalid selection coordinates")
@@ -117,36 +125,36 @@ def extract_text_from_area(x1, y1, x2, y2):
         img.save(temp_file)
         
         try:
-            # Extract text using PaddleOCR
-            ocr = get_paddle_ocr()
-            
-            # Run OCR
-            result = ocr.ocr(temp_file, cls=True)
-            
-            # Process the OCR results
-            text = ""
-            if result and len(result) > 0:
-                # Handle PaddleOCR 2.10.0 result structure
-                if isinstance(result[0], list):
-                    # New structure in PaddleOCR 2.10.0
-                    lines = []
-                    for line in result[0]:
-                        if len(line) >= 2:  # Ensure it contains text
-                            lines.append(line[1][0])  # Extract text content
-                    text = "\n".join(lines)
-                else:
-                    # Older structure fallback
-                    lines = []
-                    for line in result:
-                        for word_info in line:
-                            if len(word_info) >= 2:
-                                lines.append(word_info[1][0])
-                    text = "\n".join(lines)
-                    
+            # Extract text using Tesseract OCR with thread safety
+            with tesseract_lock:
+                # Map the DEFAULT_LANGUAGE code to Tesseract language format
+                # Default to 'eng' if not specified
+                lang = 'eng'
+                if DEFAULT_LANGUAGE == 'ch':
+                    lang = 'chi_sim'
+                elif DEFAULT_LANGUAGE == 'ja':
+                    lang = 'jpn'
+                elif DEFAULT_LANGUAGE == 'ko':
+                    lang = 'kor'
+                elif DEFAULT_LANGUAGE == 'fr':
+                    lang = 'fra'
+                elif DEFAULT_LANGUAGE == 'de':
+                    lang = 'deu'
+                elif DEFAULT_LANGUAGE == 'es':
+                    lang = 'spa'
+                
+                # Configure OCR options
+                config = '--psm 6'  # Assume a single block of text
+                
+                # Run OCR
+                text = pytesseract.image_to_string(img, lang=lang, config=config)
+                
         except ImportError as e:
-            print(f"OCR Error - PaddleOCR import failed: {e}")
-            text = f"ERROR: PaddleOCR could not be initialized. Please install required packages."
-            print(f"Required versions: paddlepaddle==2.6.2 paddleocr==2.10.0")
+            print(f"OCR Error - Tesseract import failed: {e}")
+            text = f"ERROR: Tesseract OCR could not be initialized. Please install pytesseract package."
+        except TesseractError as e:
+            print(f"Tesseract Error: {e}")
+            text = f"ERROR: Tesseract OCR failed to process the image."
             
         if text:
             copy_to_clipboard(text)

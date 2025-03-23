@@ -5,153 +5,182 @@ import tempfile
 import glob
 from config import save_ocr_settings, DEFAULT_LANGUAGE
 
-def ensure_paddle_installed():
-    """Check if Paddle (base package) is installed and install it if needed."""
-    # Check Python version for compatibility
-    py_version = sys.version_info
-    
-    if py_version.major == 3 and 7 <= py_version.minor <= 10:
-        print(f"Python {py_version.major}.{py_version.minor} is compatible with PaddlePaddle.")
-    else:
-        print(f"Warning: Python {py_version.major}.{py_version.minor} may not be fully compatible with PaddlePaddle.")
-        print("PaddlePaddle works best with Python 3.7-3.10.")
-    
+def ensure_tesseract_installed():
+    """Check if Tesseract is installed and accessible."""
     try:
-        import paddle
-        paddle_version = paddle.__version__
-        print(f"PaddlePaddle {paddle_version} is already installed.")
+        # Try to import pytesseract
+        import pytesseract
         
-        # Check if version is correct
-        if paddle_version != "2.6.2":
-            try:
-                print(f"Updating PaddlePaddle from {paddle_version} to 2.6.2...")
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "paddlepaddle==2.6.2", "--force-reinstall"])
-                print("PaddlePaddle updated successfully!")
-            except subprocess.CalledProcessError as e:
-                print(f"Warning: Failed to update PaddlePaddle: {e}")
-                print("Continuing with current version.")
-        return True
-    except ImportError:
-        # Paddle is not installed, attempt to install it
+        # Try to get the tesseract version
         try:
-            print("Installing PaddlePaddle 2.6.2... This may take a few minutes.")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "paddlepaddle==2.6.2"])
-            print("PaddlePaddle installed successfully!")
+            version = pytesseract.get_tesseract_version()
+            print(f"Tesseract {version} is installed and accessible.")
             return True
+        except Exception as e:
+            print(f"pytesseract is installed but Tesseract executable is not found: {e}")
+            
+            # On Windows, check common installation paths
+            if sys.platform.startswith('win'):
+                # Look for bundled tesseract first
+                bundled_tesseract_path = os.path.abspath(os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+                    "bundled_tesseract", "tesseract.exe"
+                ))
+                
+                if os.path.exists(bundled_tesseract_path):
+                    print(f"Found bundled Tesseract at: {bundled_tesseract_path}")
+                    pytesseract.pytesseract.tesseract_cmd = bundled_tesseract_path
+                    return True
+                    
+                # Check common installation paths
+                common_paths = [
+                    r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+                    r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+                ]
+                
+                for path in common_paths:
+                    if os.path.exists(path):
+                        print(f"Found Tesseract at: {path}")
+                        pytesseract.pytesseract.tesseract_cmd = path
+                        return True
+                
+                print("Tesseract not found. Please install it from: https://github.com/UB-Mannheim/tesseract/wiki")
+                return False
+            else:
+                # On Linux/Mac, suggest installation commands
+                if sys.platform.startswith('linux'):
+                    print("Please install Tesseract with: sudo apt-get install tesseract-ocr")
+                elif sys.platform.startswith('darwin'):
+                    print("Please install Tesseract with: brew install tesseract")
+                return False
+                
+    except ImportError:
+        # pytesseract is not installed, attempt to install it
+        try:
+            print("Installing pytesseract... This may take a few moments.")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "pytesseract"])
+            print("pytesseract installed successfully!")
+            
+            # Now check if the Tesseract executable is available
+            import pytesseract
+            try:
+                version = pytesseract.get_tesseract_version()
+                print(f"Tesseract {version} is installed and accessible.")
+                return True
+            except Exception:
+                # Suggest Tesseract installation based on platform
+                if sys.platform.startswith('win'):
+                    print("Please install Tesseract from: https://github.com/UB-Mannheim/tesseract/wiki")
+                elif sys.platform.startswith('linux'):
+                    print("Please install Tesseract with: sudo apt-get install tesseract-ocr")
+                elif sys.platform.startswith('darwin'):
+                    print("Please install Tesseract with: brew install tesseract")
+                return False
+                
         except subprocess.CalledProcessError as e:
-            print(f"Failed to install PaddlePaddle: {e}")
-            print("Try installing manually with: pip install paddlepaddle==2.6.2")
+            print(f"Failed to install pytesseract: {e}")
+            print("Try installing manually with: pip install pytesseract")
             return False
 
-def ensure_paddleocr_installed():
-    """Check if PaddleOCR is installed and install it if needed."""
-    # First make sure Paddle is installed
-    if not ensure_paddle_installed():
-        print("Cannot install PaddleOCR because PaddlePaddle installation failed.")
-        return False
-        
+def get_tesseract_language_dir():
+    """Get the directory where Tesseract language data is stored."""
     try:
-        import paddleocr
-        paddleocr_version = paddleocr.__version__
-        print(f"PaddleOCR {paddleocr_version} is already installed.")
+        import pytesseract
         
-        # Check if version is what we want
-        if paddleocr_version != "2.10.0":
-            try:
-                print(f"Updating PaddleOCR from {paddleocr_version} to 2.10.0...")
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "paddleocr==2.10.0", "--force-reinstall"])
-                print("PaddleOCR updated successfully!")
-            except subprocess.CalledProcessError as e:
-                print(f"Warning: Failed to update PaddleOCR: {e}")
-                print("Continuing with current version.")
-        return True
-    except ImportError:
-        # PaddleOCR is not installed, attempt to install it
-        try:
-            print("Installing PaddleOCR 2.10.0... This may take a few minutes.")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "paddleocr==2.10.0"])
-            print("PaddleOCR installed successfully!")
-            return True
-        except subprocess.CalledProcessError as e:
-            print(f"Failed to install PaddleOCR: {e}")
-            print("This may be because PaddlePaddle installation is incomplete or incompatible.")
-            return False
-
-def get_paddleocr_model_dir():
-    """Get the directory where PaddleOCR stores its models."""
-    try:
-        import paddle
-        home_dir = os.path.expanduser('~')
-        # PaddleOCR stores models in ~/.paddleocr
-        return os.path.join(home_dir, '.paddleocr')
+        # Try to get the Tesseract executable path
+        tesseract_cmd = pytesseract.pytesseract.tesseract_cmd
+        
+        if tesseract_cmd and os.path.exists(tesseract_cmd):
+            # Language data is typically in a "tessdata" directory
+            # near the executable or in a standard location
+            tesseract_dir = os.path.dirname(tesseract_cmd)
+            
+            # Check common relative paths
+            for relative_path in ["tessdata", "../tessdata", "../../share/tessdata"]:
+                lang_dir = os.path.join(tesseract_dir, relative_path)
+                if os.path.exists(lang_dir):
+                    return lang_dir
+                    
+            # On Windows, also check standard locations
+            if sys.platform.startswith('win'):
+                for base_path in [r'C:\Program Files\Tesseract-OCR', r'C:\Program Files (x86)\Tesseract-OCR']:
+                    lang_dir = os.path.join(base_path, "tessdata")
+                    if os.path.exists(lang_dir):
+                        return lang_dir
+                        
+        # Fallback: check bundled location
+        bundled_dir = os.path.abspath(os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
+            "bundled_tesseract", "tessdata"
+        ))
+        
+        if os.path.exists(bundled_dir):
+            return bundled_dir
+            
+        return None
     except ImportError:
         return None
 
-def check_paddleocr_models_downloaded():
-    """Check if PaddleOCR models are already downloaded."""
-    model_dir = get_paddleocr_model_dir()
-    if not model_dir or not os.path.exists(model_dir):
+def check_tesseract_language_installed(lang_code):
+    """Check if a specific Tesseract language is installed."""
+    # Convert language code to Tesseract format
+    tesseract_lang = map_to_tesseract_lang(lang_code)
+    
+    # Get the language data directory
+    lang_dir = get_tesseract_language_dir()
+    
+    if not lang_dir:
         return False
         
-    # Check for detection models
-    det_models = glob.glob(os.path.join(model_dir, '**/ch_PP-OCRv3_det_infer'), recursive=True)
-    if not det_models:
-        return False
-        
-    # Check for recognition models based on the current language
+    # Check if the language file exists
+    lang_file = os.path.join(lang_dir, f"{tesseract_lang}.traineddata")
+    
+    return os.path.exists(lang_file)
+
+def map_to_tesseract_lang(lang_code):
+    """Map language code to Tesseract language code format."""
+    # Mapping from language codes to Tesseract language codes
     lang_mapping = {
-        'en': 'en_PP-OCRv3_rec_infer',
-        'ch': 'ch_PP-OCRv3_rec_infer',
-        'fr': 'french_mobile_v2.0_rec_infer',
-        'german': 'german_mobile_v2.0_rec_infer',
-        'korean': 'korean_mobile_v2.0_rec_infer',
-        'japan': 'japan_mobile_v2.0_rec_infer'
+        'en': 'eng',   # English
+        'ch': 'chi_sim',  # Simplified Chinese
+        'ja': 'jpn',   # Japanese
+        'ko': 'kor',   # Korean
+        'fr': 'fra',   # French
+        'de': 'deu',   # German
+        'es': 'spa',   # Spanish
+        'it': 'ita',   # Italian
+        'pt': 'por',   # Portuguese
+        'ru': 'rus',   # Russian
+        'ar': 'ara',   # Arabic
+        'hi': 'hin',   # Hindi
+        'vi': 'vie',   # Vietnamese
     }
     
-    expected_rec_model = lang_mapping.get(DEFAULT_LANGUAGE, 'en_PP-OCRv3_rec_infer')
-    rec_models = glob.glob(os.path.join(model_dir, f'**/{expected_rec_model}'), recursive=True)
-    if not rec_models:
-        return False
-        
-    # All required models are present
-    return True
-
-def download_paddleocr_models(lang=DEFAULT_LANGUAGE):
-    """Force download of PaddleOCR models for the specified language."""
-    try:
-        # Import PaddleOCR
-        from paddleocr import PaddleOCR
-        
-        # Initialize PaddleOCR which will download models
-        ocr = PaddleOCR(use_angle_cls=True, lang=lang, show_log=True, use_gpu=False)
-        
-        # Create a small test image and run inference to ensure models are downloaded
-        from PIL import Image
-        import numpy as np
-        
-        # Create a blank test image
-        img = Image.new('RGB', (100, 30), color='white')
-        test_image_path = os.path.join(tempfile.gettempdir(), 'textextract_test.png')
-        img.save(test_image_path)
-        
-        # Run inference which will trigger model download if not already downloaded
-        result = ocr.ocr(test_image_path)
-        
-        # Clean up
-        if os.path.exists(test_image_path):
-            os.remove(test_image_path)
-            
-        return True
-    except Exception as e:
-        print(f"Error downloading PaddleOCR models: {e}")
-        return False
+    return lang_mapping.get(lang_code, 'eng')  # Default to English if not found
 
 def get_supported_languages():
-    """Get list of supported languages for PaddleOCR."""
-    paddleocr_langs = [
-        "en", "fr", "german", "es", "it", "pt", "ru", "japan", "korean", 
-        "ch", "chinese_cht", "arabic", "hi", "ug", "fa", "ur", "serbian", 
-        "oc", "mr", "ne", "eu", "am", "mn", "vi"
+    """Get list of supported languages for Tesseract OCR."""
+    # Common languages supported by Tesseract
+    tesseract_langs = [
+        "en",  # English (eng)
+        "fr",  # French (fra)
+        "de",  # German (deu)
+        "es",  # Spanish (spa)
+        "it",  # Italian (ita)
+        "pt",  # Portuguese (por)
+        "ru",  # Russian (rus)
+        "ch",  # Simplified Chinese (chi_sim)
+        "ja",  # Japanese (jpn)
+        "ko",  # Korean (kor)
+        "ar",  # Arabic (ara)
+        "hi",  # Hindi (hin)
+        "vi",  # Vietnamese (vie)
     ]
     
-    return paddleocr_langs
+    # Filter to only languages that are actually installed
+    available_langs = []
+    for lang in tesseract_langs:
+        if check_tesseract_language_installed(lang):
+            available_langs.append(lang)
+    
+    return available_langs

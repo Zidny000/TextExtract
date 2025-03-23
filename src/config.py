@@ -6,8 +6,10 @@ import sys
 from screeninfo import get_monitors
 
 # OCR Configuration
-# Default language for OCR (using PaddleOCR language codes)
-DEFAULT_LANGUAGE = 'en'  # English
+# Default language for OCR (using Tesseract language codes)
+# Common codes: eng (English), chi_sim (Simplified Chinese), 
+# jpn (Japanese), kor (Korean), fra (French), deu (German), etc.
+DEFAULT_LANGUAGE = 'en'  # Maps to 'eng' in Tesseract
 
 CONFIG_FILE = "config.json"
 

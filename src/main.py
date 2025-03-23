@@ -16,7 +16,7 @@ from screeninfo import get_monitors
 import pystray
 from PIL import Image, ImageDraw
 import time
-from utils import ensure_paddleocr_installed
+from utils import ensure_tesseract_installed
 import tkinter.messagebox as messagebox
 from threading import Thread
 
@@ -97,13 +97,11 @@ def ensure_single_instance():
         print("Another instance of TextExtract is already running")
         return False, None
 
-# Function to check and download models with a progress indicator
-def check_and_initialize_models(root):
-    """Check if PaddleOCR models are downloaded and initialize them with a progress indicator"""
+# Function to check and initialize Tesseract OCR
+def check_and_initialize_tesseract(root):
+    """Check if Tesseract OCR is installed and accessible"""
     from tkinter import ttk
     import tempfile
-    from utils import ensure_paddle_installed, ensure_paddleocr_installed, check_paddleocr_models_downloaded
-    from utils import download_paddleocr_models
     
     # Create a progress window
     progress_window = tk.Toplevel(root)
@@ -123,7 +121,7 @@ def check_and_initialize_models(root):
     frame = ttk.Frame(progress_window, padding="20")
     frame.pack(fill=tk.BOTH, expand=True)
     
-    status_var = tk.StringVar(value="Checking OCR dependencies...")
+    status_var = tk.StringVar(value="Checking Tesseract OCR...")
     status_label = ttk.Label(frame, textvariable=status_var)
     status_label.pack(pady=(0, 10))
     
@@ -136,99 +134,121 @@ def check_and_initialize_models(root):
         status_var.set(msg)
         progress_window.update_idletasks()
     
-    # First check if PaddlePaddle is installed with the right version
-    update_status("Checking PaddlePaddle installation...")
-    if not ensure_paddle_installed():
-        progress_window.destroy()
-        messagebox.showerror(
-            "Dependency Error",
-            "Failed to install PaddlePaddle. Please check your internet connection and try again.\n\n"
-            "You can manually install the required package with:\n"
-            "pip install paddlepaddle==2.6.2"
-        )
-        return False
+    # Check if Tesseract is installed and accessible
+    update_status("Checking Tesseract OCR installation...")
     
-    # Then make sure PaddleOCR is installed with the right version
-    update_status("Checking PaddleOCR installation...")
-    if not ensure_paddleocr_installed():
-        progress_window.destroy()
-        messagebox.showerror(
-            "Dependency Error",
-            "Failed to install PaddleOCR. Please check your internet connection and try again.\n\n"
-            "You can manually install the required package with:\n"
-            "pip install paddleocr==2.10.0"
-        )
-        return False
+    # We'll use a thread to check Tesseract so the UI doesn't freeze
+    check_thread = None
+    check_success = [False]
+    check_error = [None]
     
-    # Check if models are already downloaded
-    update_status("Checking OCR models...")
-    if check_paddleocr_models_downloaded():
-        progress_window.destroy()
-        print("PaddleOCR models are already downloaded")
-        return True
-    
-    # If models aren't downloaded yet, we need to download them
-    update_status("Downloading OCR models (this may take a few minutes)...")
-    
-    # We'll use a thread to download models so the UI doesn't freeze
-    download_thread = None
-    download_success = [False]
-    download_error = [None]
-    
-    def download_models_thread():
+    def check_tesseract_thread():
         try:
-            # Import modules for download
-            from paddleocr import PaddleOCR
-            import numpy as np
-            from PIL import Image
+            from utils import ensure_tesseract_installed, get_tesseract_language_dir, map_to_tesseract_lang
             
-            # Create a test image
-            update_status("Creating test image...")
-            img = Image.new('RGB', (100, 50), color='white')
-            img_path = os.path.join(tempfile.gettempdir(), 'paddleocr_test.png')
+            # Check for Tesseract installation
+            update_status("Verifying Tesseract installation...")
+            if not ensure_tesseract_installed():
+                update_status("Tesseract not found. Please install it.")
+                check_error[0] = "Tesseract OCR could not be found or initialized. Please install Tesseract."
+                return
+                
+            # Check if pytesseract can be imported
+            update_status("Verifying pytesseract installation...")
+            import pytesseract
+            
+            # Try to get Tesseract version
+            try:
+                version = pytesseract.get_tesseract_version()
+                update_status(f"Found Tesseract version {version}")
+            except Exception as e:
+                check_error[0] = f"Tesseract is installed but could not be accessed: {str(e)}"
+                return
+                
+            # Check for English language file
+            update_status("Checking Tesseract language files...")
+            lang_dir = get_tesseract_language_dir()
+            if lang_dir:
+                eng_file = os.path.join(lang_dir, "eng.traineddata")
+                if not os.path.exists(eng_file):
+                    check_error[0] = "English language file not found for Tesseract."
+                    return
+                update_status(f"Found language files at: {lang_dir}")
+            else:
+                check_error[0] = "Tesseract language directory not found."
+                return
+                
+            # Verify functionality with a simple test
+            update_status("Testing Tesseract OCR...")
+            
+            # Create a simple test image
+            from PIL import Image, ImageDraw, ImageFont
+            img = Image.new('RGB', (200, 50), color='white')
+            d = ImageDraw.Draw(img)
+            
+            # Try to use a common font
+            try:
+                if os.name == 'nt':  # Windows
+                    font = ImageFont.truetype("arial.ttf", 24)
+                else:  # Linux/Mac
+                    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
+            except Exception:
+                # If font not found, use default
+                font = None
+                
+            # Draw text on the image
+            d.text((10, 10), "Tesseract Test", fill='black', font=font)
+            
+            # Save to temp file
+            img_path = os.path.join(tempfile.gettempdir(), 'tesseract_test.png')
             img.save(img_path)
             
-            # Initialize PaddleOCR which will download the models
-            update_status("Downloading OCR models. This will take a few minutes...")
-            ocr = PaddleOCR(use_angle_cls=True, lang='en', show_log=False, use_gpu=False)
-            
-            # Run inference which will trigger model download
-            update_status("Finalizing model download...")
-            result = ocr.ocr(img_path)
-            
-            # Clean up
-            if os.path.exists(img_path):
-                os.remove(img_path)
+            # Run OCR on the test image
+            try:
+                text = pytesseract.image_to_string(img, lang='eng')
+                if text and "Test" in text:
+                    update_status("Tesseract OCR is working correctly!")
+                    check_success[0] = True
+                else:
+                    check_error[0] = "Tesseract didn't properly recognize the test image."
+            except Exception as e:
+                check_error[0] = f"Error during Tesseract test: {str(e)}"
+            finally:
+                # Clean up
+                if os.path.exists(img_path):
+                    os.remove(img_path)
                 
-            download_success[0] = True
+        except ImportError as e:
+            check_error[0] = f"Failed to import required packages: {str(e)}"
         except Exception as e:
-            download_error[0] = str(e)
-            print(f"Error importing paddle or paddleocr modules: {e}")
+            check_error[0] = f"Unexpected error: {str(e)}"
         finally:
-            progress_window.after(100, lambda: check_download_status(download_thread))
+            progress_window.after(100, lambda: check_status(check_thread))
     
-    def check_download_status(thread):
+    def check_status(thread):
         if thread.is_alive():
-            # Still downloading
-            progress_window.after(100, lambda: check_download_status(thread))
+            # Still checking
+            progress_window.after(100, lambda: check_status(thread))
         else:
             progress_window.destroy()
-            if download_success[0]:
+            if check_success[0]:
                 return True
             else:
                 messagebox.showerror(
                     "OCR Error",
-                    f"Failed to download OCR models: {download_error[0]}\n\n"
-                    "You can try installing the required packages manually:\n"
-                    "pip install paddlepaddle==2.6.2 paddleocr==2.10.0"
+                    f"Tesseract OCR check failed: {check_error[0]}\n\n"
+                    "Please make sure Tesseract is installed on your system.\n"
+                    "Windows: https://github.com/UB-Mannheim/tesseract/wiki\n"
+                    "Linux: sudo apt-get install tesseract-ocr\n"
+                    "macOS: brew install tesseract"
                 )
                 return False
     
-    # Start the download thread
-    download_thread = threading.Thread(target=download_models_thread)
-    download_thread.start()
+    # Start the check thread
+    check_thread = threading.Thread(target=check_tesseract_thread)
+    check_thread.start()
     
-    # Let the GUI run - when download completes, the window will close
+    # Let the GUI run - when check completes, the window will close
     return True
 
 def main():
@@ -246,8 +266,8 @@ def main():
         # Initialize AppState
         state = AppState()
         
-        # Check for PaddleOCR models after GUI is initialized
-        check_and_initialize_models(root)
+        # Check for Tesseract OCR installation
+        check_and_initialize_tesseract(root)
         
         print(f"{APP_NAME} v{__version__} started")
         print("- Ctrl+Alt+C: Capture from last selected monitor")
