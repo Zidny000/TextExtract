@@ -1,6 +1,6 @@
 pyautogui
 pillow
-# Together.ai integration
+# Together.ai integration for Qwen2-VL model
 together
 opencv-python
 keyboard

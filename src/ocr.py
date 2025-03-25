@@ -55,7 +55,7 @@ def image_to_base64(image):
     return base64.b64encode(buffered.getvalue()).decode()
 
 def extract_text_from_area(x1, y1, x2, y2):
-    """Extract text from the specified screen area using Together.ai vision model."""
+    """Extract text from the specified screen area using Qwen2-VL model."""
     # Check for invalid coordinates
     if None in (x1, y1, x2, y2):
         print("Invalid selection coordinates")
@@ -97,7 +97,7 @@ def extract_text_from_area(x1, y1, x2, y2):
             client = get_together_client()
             
             # Prepare the prompt for text extraction
-            prompt = "Please extract and return all the text visible in this image. Return only the text content without any additional explanation or formatting or additional code added. Just only the text in the image."
+            prompt = "Extract and return only the exact text visible in this image without any modifications, reformatting, additional explanations, or extra characters. Preserve the text exactly as it appears, including all punctuation, spacing, and formatting. Do not add or enclose the text within any additional symbols such as triple backticks (```) or other formatting markers. Output only the raw text as it appears in the image."
             
             # Create the message with the image
             messages = [
@@ -118,9 +118,9 @@ def extract_text_from_area(x1, y1, x2, y2):
                 }
             ]
             
-            # Call the Together API with the correct model
+            # Call the Together API with Qwen2-VL model
             response = client.chat.completions.create(
-                model="meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo",  # Using a more stable model
+                model="Qwen/Qwen2-VL-72B-Instruct",
                 messages=messages,
                 max_tokens=1024,
                 temperature=0.1,  # Lower temperature for more focused output

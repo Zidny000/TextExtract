@@ -6,10 +6,10 @@ import sys
 from screeninfo import get_monitors
 
 # OCR Configuration
-# Default language for OCR (using PaddleOCR language codes)
+# Default language for OCR 
 DEFAULT_LANGUAGE = 'en'  # English
 
-# Together.ai API key
+# Together.ai API key for Qwen2-VL
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "")
 
 CONFIG_FILE = "config.json"
