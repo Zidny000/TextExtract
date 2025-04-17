@@ -120,7 +120,7 @@ def extract_text_from_area(x1, y1, x2, y2):
             
             # Call the Together API with Qwen2-VL model
             response = client.chat.completions.create(
-                model="Qwen/Qwen2-VL-72B-Instruct",
+                model="meta-llama/Llama-4-Scout-17B-16E-Instruct",
                 messages=messages,
                 max_tokens=1024,
                 temperature=0.1,  # Lower temperature for more focused output
