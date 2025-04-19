@@ -9,7 +9,7 @@ import socket
 from monitor_selector import MonitorSelector
 from overlay import ScreenOverlay
 from ocr import extract_text_from_area
-from config import save_selected_monitor, load_selected_monitor, TOGETHER_API_KEY
+from config import save_selected_monitor, load_selected_monitor, check_google_vision_credentials
 from visual_control import FloatingIcon
 import tkinter as tk
 from screeninfo import get_monitors
@@ -96,12 +96,12 @@ def ensure_single_instance():
         print("Another instance of TextExtract is already running")
         return False, None
 
-def check_together_api_key():
-    """Check if Together.ai API key is set and valid."""
-    if not TOGETHER_API_KEY:
+def check_vision_api_credentials():
+    """Check if Google Vision API credentials are properly set."""
+    if not check_google_vision_credentials():
         messagebox.showerror(
-            "API Key Required",
-            "Together.ai API key is not set. Please set the TOGETHER_API_KEY environment variable or add it to your config file."
+            "API Credentials Error",
+            "Google Vision API credentials are not properly configured. Please contact the application provider for support."
         )
         return False
     return True
@@ -116,8 +116,8 @@ def main():
     root = tk.Tk()
     root.withdraw()  # Hide the root window
     
-    # Check Together.ai API key
-    if not check_together_api_key():
+    # Check Google Vision API credentials
+    if not check_vision_api_credentials():
         root.destroy()
         return
 

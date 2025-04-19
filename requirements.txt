@@ -1,7 +1,7 @@
 pyautogui
 pillow
-# Together.ai integration for Qwen2-VL model
-together
+# Google Vision API for OCR
+google-cloud-vision
 opencv-python
 keyboard
 pyperclip

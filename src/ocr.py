@@ -6,27 +6,27 @@ import sys
 import base64
 from PIL import Image, ImageEnhance
 from mss import mss
-from config import DEFAULT_LANGUAGE, TOGETHER_API_KEY
+from config import DEFAULT_LANGUAGE
 from clipboard import copy_to_clipboard
-from together import Together
+from google.cloud import vision
 
-# Initialize Together client - use a lock to prevent multiple initializations
-together_lock = threading.Lock()
-_together_client = None
+# Initialize Google Vision client - use a lock to prevent multiple initializations
+vision_lock = threading.Lock()
+_vision_client = None
 
-def get_together_client():
-    """Get or initialize Together client instance using a singleton pattern"""
-    global _together_client
-    with together_lock:
-        if _together_client is None:
+def get_vision_client():
+    """Get or initialize Google Vision client instance using a singleton pattern"""
+    global _vision_client
+    with vision_lock:
+        if _vision_client is None:
             try:
-                if not TOGETHER_API_KEY:
-                    raise ValueError("Together.ai API key not found. Please set the TOGETHER_API_KEY environment variable or add it to your config file.")
-                _together_client = Together(api_key=TOGETHER_API_KEY)
+                _vision_client = vision.ImageAnnotatorClient()
             except Exception as e:
-                print(f"Error initializing Together client: {e}")
+                print(f"Error initializing Google Vision client: {e}")
+                print("Make sure you have set GOOGLE_APPLICATION_CREDENTIALS environment variable "
+                      "pointing to your Google Cloud service account key JSON file.")
                 raise
-    return _together_client
+    return _vision_client
 
 def preprocess_image(image):
     """Preprocess image for better OCR results."""
@@ -47,15 +47,15 @@ def preprocess_image(image):
     
     return image
 
-def image_to_base64(image):
-    """Convert PIL Image to base64 string."""
+def image_to_bytes(image):
+    """Convert PIL Image to bytes."""
     import io
     buffered = io.BytesIO()
     image.save(buffered, format="PNG")
-    return base64.b64encode(buffered.getvalue()).decode()
+    return buffered.getvalue()
 
 def extract_text_from_area(x1, y1, x2, y2):
-    """Extract text from the specified screen area using Qwen2-VL model."""
+    """Extract text from the specified screen area using Google Vision API."""
     # Check for invalid coordinates
     if None in (x1, y1, x2, y2):
         print("Invalid selection coordinates")
@@ -89,53 +89,41 @@ def extract_text_from_area(x1, y1, x2, y2):
         # Apply preprocessing
         img = preprocess_image(img)
         
-        # Convert image to base64
-        img_base64 = image_to_base64(img)
+        # Convert image to bytes
+        img_bytes = image_to_bytes(img)
         
         try:
-            # Get Together client
-            client = get_together_client()
+            # Get Vision client
+            client = get_vision_client()
             
-            # Prepare the prompt for text extraction
-            prompt = "Extract and return only the exact text visible in this image without any modifications, reformatting, additional explanations, or extra characters. Preserve the text exactly as it appears, including all punctuation, spacing, and formatting. Do not add or enclose the text within any additional symbols such as triple backticks (```) or other formatting markers. Output only the raw text as it appears in the image."
+            # Create image object
+            image = vision.Image(content=img_bytes)
             
-            # Create the message with the image
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": prompt
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/png;base64,{img_base64}"
-                            }
-                        }
-                    ]
-                }
-            ]
+            # Perform text detection
+            response = client.text_detection(image=image)
             
-            # Call the Together API with Qwen2-VL model
-            response = client.chat.completions.create(
-                model="meta-llama/Llama-4-Scout-17B-16E-Instruct",
-                messages=messages,
-                max_tokens=1024,
-                temperature=0.1,  # Lower temperature for more focused output
-                top_p=0.9
-            )
-            
+            # Handle potential errors
+            if response.error.message:
+                print(f"Google Vision API Error: {response.error.message}")
+                return None
+                
             # Extract the text from the response
-            text = response.choices[0].message.content.strip()
+            # Get full text annotation which preserves formatting better
+            texts = response.text_annotations
             
-            if text:
-                copy_to_clipboard(text)
-            return text
+            if texts:
+                # The first annotation contains the entire text
+                text = texts[0].description
+                
+                if text:
+                    copy_to_clipboard(text)
+                return text
+            else:
+                print("No text detected in the image")
+                return None
             
         except Exception as e:
-            print(f"OCR Error - Together API failed: {e}")
+            print(f"OCR Error - Google Vision API failed: {e}")
             return None
             
     except Exception as e:

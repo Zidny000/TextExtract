@@ -1,8 +1,19 @@
 import os
 import sys
+import json
+import base64
 
 # This runtime hook helps PyInstaller find the Python DLL
 # It adds the executable directory to the PATH environment variable
+
+def setup_vision_credentials():
+    """Set up Google Vision credentials at runtime"""
+    from src.config import setup_embedded_credentials, get_credentials_path
+    
+    # Ensure credentials are set up properly at runtime
+    credentials_path = get_credentials_path()
+    if not os.path.exists(credentials_path):
+        setup_embedded_credentials()
 
 if getattr(sys, 'frozen', False):
     # We are running in a PyInstaller bundle
@@ -23,6 +34,13 @@ if getattr(sys, 'frozen', False):
             f.write(f"Bundle directory: {bundle_dir}\n")
             f.write(f"PATH: {os.environ['PATH']}\n")
             f.write(f"sys.path: {sys.path}\n")
+            
+        # Set up Google Vision credentials
+        setup_vision_credentials()
     except Exception as e:
-        # If logging fails, continue without error
-        pass 
+        # If logging or setup fails, continue without error
+        try:
+            with open(log_file, 'a') as f:
+                f.write(f"Error during startup: {str(e)}\n")
+        except:
+            pass 

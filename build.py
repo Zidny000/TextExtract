@@ -4,11 +4,32 @@ import subprocess
 import sys
 import re
 import platform
+import json
 from pathlib import Path
 from version import __version__
 
+def check_vision_credentials():
+    """Check if Google Vision API credentials are properly set for the build"""
+    credentials = os.environ.get("GOOGLE_VISION_CREDENTIALS")
+    
+    if not credentials:
+        print("\nWARNING: GOOGLE_VISION_CREDENTIALS environment variable not set.")
+        print("The built application will require users to provide their own credentials.")
+        print("For a SaaS deployment, set this environment variable before building.")
+        print("You can use prepare_credentials.py to create the appropriate value.\n")
+        
+        if input("Continue without embedded credentials? (y/n): ").lower() != 'y':
+            print("Build cancelled. Please set up the credentials and try again.")
+            sys.exit(1)
+    else:
+        print("Google Vision API credentials found in environment.")
+        print("These credentials will be embedded in the application.")
+
 def build_executable():
     print("Building TextExtract executable...")
+    
+    # Check for Google Vision API credentials
+    check_vision_credentials()
     
     # Clean previous build artifacts
     if os.path.exists("build"):
