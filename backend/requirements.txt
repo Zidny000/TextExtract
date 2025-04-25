@@ -1,0 +1,12 @@
+flask
+together
+flask-cors
+flask-limiter
+gunicorn
+requests
+python-dotenv
+supabase
+psycopg2-binary
+Flask-Bcrypt
+PyJWT
+user-agents

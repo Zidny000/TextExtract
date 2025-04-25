@@ -1,7 +1,6 @@
 pyautogui
 pillow
-# Together.ai integration for Qwen2-VL model
-together
+requests
 opencv-python
 keyboard
 pyperclip
@@ -9,9 +8,10 @@ mss
 pystray
 pywin32
 winshell
-pyinstaller>=5.13.0
-pyinstaller-hooks-contrib>=2023.10
+pyinstaller
+pyinstaller-hooks-contrib
 screeninfo
 pywin32-ctypes
 pefile
 altgraph
+keyring

@@ -20,7 +20,7 @@ Include/
 Lib/
 Scripts/
 pyvenv.cfg
-.env
+*.env
 .venv
 env/
 venv/
