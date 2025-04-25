@@ -13,7 +13,6 @@ def get_profile():
     try:
         # Get user data from global context
         user = g.user.copy()
-        
         # Remove sensitive data
         user.pop('password_hash', None)
         
@@ -22,7 +21,15 @@ def get_profile():
         
         # Get user's devices
         devices = Device.get_user_devices(user['id'])
-        
+        print({
+            "user": user,
+            "usage": {
+                "today_requests": today_count,
+                "remaining_requests": user.get('max_requests_per_day', 50) - today_count,
+                "plan_limit": user.get('max_requests_per_day', 50)
+            },
+            "devices": devices
+        })
         # Return user profile
         return jsonify({
             "user": user,

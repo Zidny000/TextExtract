@@ -85,7 +85,7 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
     # Check if user is authenticated
     if not auth.is_authenticated():
         # Show login dialog
-        from auth import AuthDialog
+        from src.ui.dialogs.auth_dialog import AuthDialog
         login_dialog = AuthDialog(parent_window, "Authentication Required")
         is_authenticated = login_dialog.show()
         
@@ -162,7 +162,7 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
                     )
                 else:
                     # Show login dialog to get new credentials
-                    from auth import AuthDialog
+                    from src.ui.dialogs.auth_dialog import AuthDialog
                     login_dialog = AuthDialog(parent_window, "Session Expired")
                     is_authenticated = login_dialog.show()
                     

@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS users (
     subscription_id VARCHAR(255),
     subscription_start_date TIMESTAMP WITH TIME ZONE,
     subscription_end_date TIMESTAMP WITH TIME ZONE,
-    max_requests_per_day INTEGER DEFAULT 50
+    max_requests_per_day INTEGER DEFAULT 50,
+    email_verified BOOLEAN DEFAULT FALSE
 );
 
 -- Create api_requests table

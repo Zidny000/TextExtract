@@ -103,7 +103,8 @@ def ensure_single_instance():
         return False, None
 
 def show_login_dialog(parent_window):
-    """Show login dialog and return authentication result"""
+    """Show a login dialog and return True if login is successful"""
+    from src.ui.dialogs.auth_dialog import AuthDialog
     print("Creating separate login window...")
     
     # Create a temporary window specifically for hosting the login dialog
@@ -137,7 +138,6 @@ def show_login_dialog(parent_window):
         login_window.update()
         
         # Create and show auth dialog using our visible window as parent
-        from auth import AuthDialog
         auth_dialog = AuthDialog(login_window, "Welcome to TextExtract")
         result = auth_dialog.show()
         
@@ -171,6 +171,11 @@ def main():
         # Create root window
         print("Creating Tkinter root window...")
         root = tk.Tk()
+        
+        # Initialize thread manager
+        from src.utils.threading.thread_manager import init_thread_manager
+        init_thread_manager(root)
+        print("Thread manager initialized")
         
         # Create a simple splash screen
         splash = tk.Toplevel(root)
@@ -353,116 +358,179 @@ def main():
         
         def show_profile():
             """Show user profile dialog"""
-            if not auth.is_authenticated():
-                # Show login dialog
-                from auth import AuthDialog
-                login_dialog = AuthDialog(root, "Authentication Required")
-                if not login_dialog.show():
-                    return
+            print("Showing user profile dialog...")
+            
+            # Use a separate function for UI operations to ensure thread safety
+            def show_profile_ui():
+                if not auth.is_authenticated():
+                    # Show login dialog
+                    from src.ui.dialogs.auth_dialog import AuthDialog
+                    login_dialog = AuthDialog(root, "Authentication Required")
+                    if not login_dialog.show():
+                        return
                 
-            # Temporarily make root visible to help with focus issues
-            root.update_idletasks()
+                # Temporarily disable floating icon if visible
+                if app_state.floating_icon and app_state.floating_icon.is_visible:
+                    app_state.floating_icon.is_responding = False
+                
+                # Temporarily make root visible to help with focus issues
+                root.update_idletasks()
+                
+                # Show loading indicator
+                loading_window = tk.Toplevel(root)
+                loading_window.title("Loading")
+                loading_window.geometry("250x100")
+                loading_window.resizable(False, False)
+                loading_window.transient(root)
+                
+                # Center the window
+                loading_window.update_idletasks()
+                width = loading_window.winfo_width()
+                height = loading_window.winfo_height()
+                x = (loading_window.winfo_screenwidth() // 2) - (width // 2)
+                y = (loading_window.winfo_screenheight() // 2) - (height // 2)
+                loading_window.geometry(f'{width}x{height}+{x}+{y}')
+                
+                loading_label = tk.Label(loading_window, text="Loading profile data...")
+                loading_label.pack(pady=30)
+                
+                # Define a function to fetch profile data in a separate thread
+                def fetch_profile_thread():
+                    try:
+                        profile, message = auth.get_user_profile()
+                        
+                        # Schedule UI update in the main thread
+                        def update_ui():
+                            try:
+                                # Close loading window
+                                loading_window.destroy()
+                                
+                                if profile:
+                                    app_state.user_profile = profile
+                                    # Display the profile dialog
+                                    # Import here to avoid circular imports
+                                    from src.ui.dialogs.profile_dialog import create_user_profile_dialog
+                                    
+                                    # First check if there's already a profile dialog open
+                                    for widget in root.winfo_children():
+                                        if isinstance(widget, tk.Toplevel) and widget.title() == "User Profile":
+                                            widget.destroy()
+                                    
+                                    # Now create and show the profile dialog
+                                    profile_dialog = create_user_profile_dialog(
+                                        root, 
+                                        profile,
+                                        on_profile_update=None,
+                                        on_logout=lambda: safe_logout()
+                                    )
+                                    
+                                    # Add a special callback when the dialog closes to re-enable floating icon
+                                    original_on_close = profile_dialog.on_close
+                                    def on_close_with_cleanup():
+                                        result = original_on_close()
+                                        # Re-enable floating icon
+                                        if app_state.floating_icon and app_state.floating_icon.is_visible:
+                                            app_state.floating_icon.is_responding = True
+                                        return result
+                                    
+                                    profile_dialog.on_close = on_close_with_cleanup
+                                    
+                                    # Make sure it's visible and has focus
+                                    root.after(100, lambda: profile_dialog.dialog.lift())
+                                    root.after(200, lambda: profile_dialog.dialog.focus_force())
+                                    
+                                    # Check if dialog actually appears
+                                    def check_dialog():
+                                        if hasattr(profile_dialog, 'dialog') and profile_dialog.dialog.winfo_exists():
+                                            print("Profile dialog is visible")
+                                        else:
+                                            print("Profile dialog failed to appear")
+                                            # Re-enable floating icon if dialog failed to appear
+                                            if app_state.floating_icon and app_state.floating_icon.is_visible:
+                                                app_state.floating_icon.is_responding = True
+                                    
+                                    root.after(500, check_dialog)
+                                else:
+                                    messagebox.showerror("Error", f"Could not fetch user profile: {message}")
+                                    # Re-enable floating icon
+                                    if app_state.floating_icon and app_state.floating_icon.is_visible:
+                                        app_state.floating_icon.is_responding = True
+                            except Exception as e:
+                                print(f"Error in update_ui: {e}")
+                                print(traceback.format_exc())
+                                messagebox.showerror("Error", f"An error occurred: {str(e)}")
+                                # Re-enable floating icon
+                                if app_state.floating_icon and app_state.floating_icon.is_visible:
+                                    app_state.floating_icon.is_responding = True
+                    
+                        root.after(0, update_ui)
+                    except Exception as e:
+                        print(f"Error fetching profile: {e}")
+                        print(traceback.format_exc())
+                        
+                        def show_error():
+                            try:
+                                loading_window.destroy()
+                            except:
+                                pass
+                            messagebox.showerror("Error", f"An error occurred: {str(e)}")
+                            # Re-enable floating icon
+                            if app_state.floating_icon and app_state.floating_icon.is_visible:
+                                app_state.floating_icon.is_responding = True
+                    
+                        root.after(0, show_error)
+                
+                # Start profile fetching in background thread
+                Thread(target=fetch_profile_thread, daemon=True).start()
             
-            # Fetch latest profile
-            profile, _ = auth.get_user_profile()
-            if not profile:
-                messagebox.showerror("Error", "Could not fetch user profile")
-                return
-            
-            app_state.user_profile = profile
-            
-            # Create profile dialog
-            profile_window = tk.Toplevel(root)
-            profile_window.title("User Profile")
-            profile_window.geometry("400x300")
-            profile_window.resizable(False, False)
-            profile_window.transient(root)
-            profile_window.grab_set()
-            
-            # Center the window
-            profile_window.update_idletasks()
-            width = profile_window.winfo_width()
-            height = profile_window.winfo_height()
-            x = (profile_window.winfo_screenwidth() // 2) - (width // 2)
-            y = (profile_window.winfo_screenheight() // 2) - (height // 2)
-            profile_window.geometry(f'{width}x{height}+{x}+{y}')
-            
-            # Main frame with padding
-            main_frame = tk.Frame(profile_window, padx=20, pady=20)
-            main_frame.pack(fill='both', expand=True)
-            
-            # User info
-            tk.Label(main_frame, text="User Profile", font=("Arial", 16, "bold")).pack(pady=(0, 15))
-            
-            user = profile["user"]
-            usage = profile["usage"]
-            
-            # Create info frame with grid layout
-            info_frame = tk.Frame(main_frame)
-            info_frame.pack(fill='both', expand=True)
-            
-            # Email
-            tk.Label(info_frame, text="Email:", font=("Arial", 10, "bold"), anchor='w').grid(row=0, column=0, sticky='w', pady=5)
-            tk.Label(info_frame, text=user.get("email", "Unknown"), anchor='w').grid(row=0, column=1, sticky='w', pady=5)
-            
-            # Full name
-            tk.Label(info_frame, text="Name:", font=("Arial", 10, "bold"), anchor='w').grid(row=1, column=0, sticky='w', pady=5)
-            tk.Label(info_frame, text=user.get("full_name", "Not set"), anchor='w').grid(row=1, column=1, sticky='w', pady=5)
-            
-            # Plan
-            tk.Label(info_frame, text="Plan:", font=("Arial", 10, "bold"), anchor='w').grid(row=2, column=0, sticky='w', pady=5)
-            tk.Label(info_frame, text=user.get("plan_type", "Free").capitalize(), anchor='w').grid(row=2, column=1, sticky='w', pady=5)
-            
-            # Usage separator
-            tk.Frame(main_frame, height=1, bg="gray").pack(fill='x', pady=10)
-            
-            # Usage stats
-            tk.Label(main_frame, text="Usage", font=("Arial", 12, "bold")).pack(anchor='w', pady=(10, 5))
-            
-            usage_frame = tk.Frame(main_frame)
-            usage_frame.pack(fill='both', expand=True)
-            
-            # Requests used today
-            tk.Label(usage_frame, text="Today:", font=("Arial", 10, "bold"), anchor='w').grid(row=0, column=0, sticky='w', pady=5)
-            tk.Label(usage_frame, text=f"{usage.get('today_requests', 0)} requests used", anchor='w').grid(row=0, column=1, sticky='w', pady=5)
-            
-            # Remaining requests
-            tk.Label(usage_frame, text="Remaining:", font=("Arial", 10, "bold"), anchor='w').grid(row=1, column=0, sticky='w', pady=5)
-            tk.Label(usage_frame, text=f"{usage.get('remaining_requests', 0)} requests", anchor='w').grid(row=1, column=1, sticky='w', pady=5)
-            
-            # Daily limit
-            tk.Label(usage_frame, text="Daily limit:", font=("Arial", 10, "bold"), anchor='w').grid(row=2, column=0, sticky='w', pady=5)
-            tk.Label(usage_frame, text=f"{usage.get('plan_limit', 0)} requests", anchor='w').grid(row=2, column=1, sticky='w', pady=5)
-            
-            # Buttons
-            button_frame = tk.Frame(main_frame)
-            button_frame.pack(fill='x', pady=(15, 0))
-            
-            # Logout button
-            logout_btn = tk.Button(button_frame, text="Logout", command=lambda: [profile_window.destroy(), logout_user()])
-            logout_btn.pack(side='left', padx=5)
-            
-            # Close button
-            close_btn = tk.Button(button_frame, text="Close", command=profile_window.destroy)
-            close_btn.pack(side='right', padx=5)
-
+            # Ensure UI operations run in the main thread
+            if threading.current_thread() is threading.main_thread():
+                show_profile_ui()
+            else:
+                root.after(0, show_profile_ui)
+        
         def logout_user():
             """Logout the current user"""
-            # Confirm logout
-            if messagebox.askyesno("Confirm Logout", "Are you sure you want to logout?"):
-                success, _ = auth.logout()
-                if success:
-                    # Show login dialog
-                    from auth import AuthDialog
-                    login_dialog = AuthDialog(root, "Login Required")
-                    if not login_dialog.show():
-                        # User canceled login, exit the app
-                        exit_application()
-                    else:
-                        # User logged in, refresh profile
-                        Thread(target=fetch_profile_thread, daemon=True).start()
-                else:
-                    messagebox.showerror("Error", "Could not logout")
+            print("Processing logout request...")
+            
+            # Use a separate function for UI operations to ensure thread safety
+            def logout_ui():
+                # Confirm logout
+                if messagebox.askyesno("Confirm Logout", "Are you sure you want to logout?"):
+                    # Perform logout in a separate thread
+                    def logout_thread():
+                        try:
+                            success, message = auth.logout()
+                            
+                            # Schedule UI update in main thread
+                            def update_ui():
+                                if success:
+                                    # Show login dialog
+                                    from src.ui.dialogs.auth_dialog import AuthDialog
+                                    login_dialog = AuthDialog(root, "Login Required")
+                                    if not login_dialog.show():
+                                        # User canceled login, exit the app
+                                        exit_application()
+                                    else:
+                                        # User logged in, refresh profile
+                                        Thread(target=fetch_profile_thread, daemon=True).start()
+                        except Exception as e:
+                            print(f"Error during logout: {e}")
+                            print(traceback.format_exc())
+                            
+                            def show_error():
+                                messagebox.showerror("Error", f"An error occurred during logout: {str(e)}")
+                            
+                            root.after(0, show_error)
+                    
+                    # Start logout process in background thread
+                    Thread(target=logout_thread, daemon=True).start()
+            
+            # Ensure UI operations run in the main thread
+            if threading.current_thread() is threading.main_thread():
+                logout_ui()
+            else:
+                root.after(0, logout_ui)
 
         def exit_application():
             print("Exiting application...")
@@ -506,25 +574,27 @@ def main():
 
         # Thread-safe versions of commands
         def safe_capture():
-            app_state.command_queue.put(("capture", None))
+            root.after(0, lambda: app_state.command_queue.put(("capture", None)))
         
         def safe_change_monitor():
-            app_state.command_queue.put(("change_monitor", None))
+            root.after(0, lambda: app_state.command_queue.put(("change_monitor", None)))
         
         def safe_toggle_floating_icon():
-            app_state.command_queue.put(("toggle_floating_icon", None))
+            root.after(0, lambda: app_state.command_queue.put(("toggle_floating_icon", None)))
         
         def safe_show_profile():
-            app_state.command_queue.put(("show_profile", None))
+            # Execute in the main thread using after() to avoid freezing
+            root.after(0, lambda: app_state.command_queue.put(("show_profile", None)))
         
         def safe_logout():
-            app_state.command_queue.put(("logout", None))
+            # Execute in the main thread using after() to avoid freezing
+            root.after(0, lambda: app_state.command_queue.put(("logout", None)))
         
         def safe_exit():
-            app_state.command_queue.put(("exit", None))
+            root.after(0, lambda: app_state.command_queue.put(("exit", None)))
         
         def safe_change_monitor_by_index(idx):
-            app_state.command_queue.put(("change_monitor_by_index", [idx]))
+            root.after(0, lambda: app_state.command_queue.put(("change_monitor_by_index", [idx])))
 
         # Function to toggle the floating icon visibility
         def toggle_floating_icon():
