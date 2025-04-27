@@ -15,6 +15,9 @@ import src.auth as auth
 # Configure logger
 logger = logging.getLogger(__name__)
 
+# Track active auth dialogs to prevent multiple dialogs
+_active_auth_dialogs = {}
+
 class AuthDialog(BaseDialog):
     """Dialog for user login or registration"""
     
@@ -29,6 +32,10 @@ class AuthDialog(BaseDialog):
         """
         self.on_auth_success = on_auth_success
         self.current_view = "login"  # Can be "login", "register", or "forgot_password"
+        self.dialog_id = id(self)
+        
+        # Track this dialog
+        _active_auth_dialogs[self.dialog_id] = self
         
         # Initialize the base dialog
         super().__init__(
@@ -82,6 +89,30 @@ class AuthDialog(BaseDialog):
         
         # Set dialog to close on Escape key
         self.dialog.bind("<Escape>", lambda event: self.on_close())
+        
+        # Set a cleanup handler when the dialog is closed
+        self.dialog.protocol("WM_DELETE_WINDOW", self.on_close)
+    
+    def on_close(self):
+        """Handle dialog close"""
+        try:
+            # Remove from active dialogs
+            dialog_id = self.dialog_id
+            if dialog_id in _active_auth_dialogs:
+                _active_auth_dialogs.pop(dialog_id, None)
+                logger.debug(f"Removed dialog {dialog_id} from active dialogs")
+            else:
+                logger.warning(f"Dialog {dialog_id} not found in active dialogs")
+            
+            # Log remaining active dialogs for debugging
+            if _active_auth_dialogs:
+                logger.warning(f"Still have {len(_active_auth_dialogs)} active dialogs after closing one")
+        except Exception as e:
+            logger.error(f"Error in on_close: {e}")
+            logger.error(traceback.format_exc())
+        
+        # Call the parent class method to close the dialog
+        return super().on_close()
     
     def show_login(self):
         """Show login form"""
@@ -291,6 +322,74 @@ class AuthDialog(BaseDialog):
         logger.error(f"Authentication error: {str(error)}")
         self.status_var.set(f"Error: {str(error)}")
         
+    def show(self):
+        """Show the dialog and wait for it to be closed."""
+        logger.debug(f"Showing dialog {self.__class__.__name__}")
+        
+        try:
+            # Ensure dialog is visible and on top
+            self.dialog.deiconify()
+            self.dialog.lift()
+            self.dialog.focus_force()
+            self.dialog.attributes('-topmost', True)
+            self.dialog.update()
+            
+            # Force dialog to redraw in case it's not appearing
+            self.dialog.update_idletasks()
+            
+            # Schedule additional visibility check
+            self.dialog.after(100, self._check_visibility)
+            
+            # If using modal dialog, wait for it to close
+            if self.modal and self.parent.winfo_exists():
+                self.parent.wait_window(self.dialog)
+            
+            logger.debug(f"Dialog {self.__class__.__name__} closed with result: {self.result}")
+            return self.result
+        except Exception as e:
+            logger.error(f"Error showing dialog {self.__class__.__name__}: {e}")
+            logger.error(traceback.format_exc())
+            return None
+        
+    def _check_visibility(self):
+        """Check if dialog is visible and fix if not."""
+        try:
+            # Store the retry count in the dialog instance if it doesn't exist
+            if not hasattr(self, '_visibility_retries'):
+                self._visibility_retries = 0
+            
+            # Check if the dialog is visible
+            if not self.dialog.winfo_viewable():
+                self._visibility_retries += 1
+                logger.warning(f"Dialog {self.__class__.__name__} not visible, attempt {self._visibility_retries}/3")
+                
+                # Only try to fix visibility a limited number of times
+                if self._visibility_retries <= 3:
+                    self.dialog.deiconify()
+                    self.dialog.attributes('-topmost', True)
+                    self.dialog.focus_force()
+                    
+                    # Schedule another check
+                    self.dialog.after(200, self._check_visibility)
+                else:
+                    logger.error(f"Failed to make dialog visible after {self._visibility_retries} attempts, giving up")
+                    # Consider showing a fallback message box as a last resort
+                    try:
+                        import tkinter.messagebox as messagebox
+                        messagebox.showwarning(
+                            "Dialog Issue", 
+                            "The login dialog could not be displayed properly. Please try again.",
+                            parent=self.parent
+                        )
+                    except Exception as fallback_error:
+                        logger.error(f"Error showing fallback message: {fallback_error}")
+            else:
+                # Dialog is visible, reset retry count
+                self._visibility_retries = 0
+        except Exception as e:
+            logger.error(f"Error in visibility check: {e}")
+            # Don't raise, just log
+
 class PasswordResetDialog(BaseDialog):
     """Dialog for resetting password with a token"""
     
@@ -385,6 +484,92 @@ class PasswordResetDialog(BaseDialog):
         self.status_var.set(f"Error: {str(error)}")
         logger.error(f"Password reset error: {str(error)}")
 
+class PasswordResetRequestDialog(BaseDialog):
+    """Dialog for requesting a password reset email"""
+    
+    def __init__(self, parent):
+        # Initialize the base dialog
+        super().__init__(
+            parent=parent,
+            title="Reset Password",
+            size=(350, 250),
+            resizable=False,
+            modal=True,
+            topmost=True,
+            centered=True
+        )
+    
+    def _create_ui(self):
+        """Create the dialog UI"""
+        # Main frame with padding
+        self.main_frame = ttk.Frame(self.dialog, padding=20)
+        self.main_frame.pack(fill='both', expand=True)
+        
+        # Instructions
+        ttk.Label(self.main_frame, text="Enter your email address to receive a password reset link:", 
+                wraplength=300).pack(pady=(0, 15))
+        
+        # Email field
+        ttk.Label(self.main_frame, text="Email:").pack(anchor='w')
+        self.email_entry = ttk.Entry(self.main_frame, width=40)
+        self.email_entry.pack(fill='x', pady=5)
+        
+        # Status message
+        self.status_var = tk.StringVar()
+        ttk.Label(self.main_frame, textvariable=self.status_var, 
+                foreground="red", wraplength=300).pack(pady=5)
+        
+        # Buttons
+        button_frame = ttk.Frame(self.main_frame)
+        button_frame.pack(fill='x', pady=(15, 0))
+        
+        ttk.Button(button_frame, text="Cancel", command=self.on_close).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Send Reset Link", command=self.request_reset).pack(side='right', padx=5)
+        
+        # Set focus to email entry
+        self.email_entry.focus_set()
+    
+    def request_reset(self):
+        """Request password reset"""
+        email = self.email_entry.get().strip()
+        
+        if not email:
+            self.status_var.set("Please enter your email address")
+            return
+            
+        self.status_var.set("Sending reset link...")
+        self.dialog.update()
+        
+        # Request password reset in background
+        self.run_in_background(
+            auth.request_password_reset,
+            email,
+            callback=self.handle_reset_result,
+            error_callback=self.handle_reset_error
+        )
+    
+    def handle_reset_result(self, result):
+        """Handle reset result"""
+        success, message = result
+        
+        if success:
+            self.status_var.set("Reset link sent successfully")
+            
+            # Show success message and close after delay
+            tk.messagebox.showinfo(
+                "Success", 
+                "A password reset link has been sent to your email address. Please check your inbox.",
+                parent=self.dialog
+            )
+            self.close(True)
+        else:
+            self.status_var.set(message)
+    
+    def handle_reset_error(self, error):
+        """Handle reset error"""
+        self.status_var.set(f"Error: {str(error)}")
+        logger.error(f"Password reset request error: {str(error)}")
+
 # Factory function to create an auth dialog
 def create_auth_dialog(parent, title="Authentication Required", on_auth_success=None):
     """
@@ -396,6 +581,15 @@ def create_auth_dialog(parent, title="Authentication Required", on_auth_success=
         on_auth_success: Optional callback to execute on successful authentication
         
     Returns:
-        AuthDialog: The created dialog
+        AuthDialog: The created dialog or None if a dialog is already active
     """
+    # Check if there's already an active auth dialog
+    if _active_auth_dialogs:
+        logger.info("Auth dialog already active, not creating another one")
+        for dialog_id, dialog in _active_auth_dialogs.items():
+            # Return the first active dialog
+            return dialog
+        return None
+    
+    # Create a new dialog
     return AuthDialog(parent, title, on_auth_success) 

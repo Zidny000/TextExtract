@@ -152,16 +152,33 @@ def clear_auth_data():
     print("Clearing auth data")
     try:
         if _USE_KEYRING:
+            # Set empty values to effectively clear the data
             keyring.set_password(SERVICE_NAME, TOKEN_KEY, "")
             keyring.set_password(SERVICE_NAME, USER_ID_KEY, "")
             keyring.set_password(SERVICE_NAME, EMAIL_KEY, "")
+            
+            # Try to delete the passwords if supported
+            try:
+                keyring.delete_password(SERVICE_NAME, TOKEN_KEY)
+                keyring.delete_password(SERVICE_NAME, USER_ID_KEY)
+                keyring.delete_password(SERVICE_NAME, EMAIL_KEY)
+            except (NotImplementedError, AttributeError):
+                # Some keyring backends don't support deletion
+                pass
         else:
             _fallback_storage[TOKEN_KEY] = ""
             _fallback_storage[USER_ID_KEY] = ""
             _fallback_storage[EMAIL_KEY] = ""
+            
+            # Remove keys completely
+            _fallback_storage.pop(TOKEN_KEY, None)
+            _fallback_storage.pop(USER_ID_KEY, None)
+            _fallback_storage.pop(EMAIL_KEY, None)
+            
         return True
     except Exception as e:
         print(f"Error clearing auth data: {e}")
+        print(traceback.format_exc())
         return False
 
 def register(email, password, full_name=""):
@@ -271,8 +288,12 @@ def login(email, password):
 
 def logout():
     """Logout current user"""
-    clear_auth_data()
-    return True, "Logout successful"
+    print("Logging out current user")
+    success = clear_auth_data()
+    if success:
+        return True, "Logout successful"
+    else:
+        return False, "Error during logout"
 
 def refresh_token():
     """Refresh the authentication token"""
@@ -297,7 +318,10 @@ def refresh_token():
         
         if response.status_code == 200:
             data = response.json()
-            keyring.set_password(SERVICE_NAME, TOKEN_KEY, data["token"])
+            if _USE_KEYRING:
+                keyring.set_password(SERVICE_NAME, TOKEN_KEY, data["token"])
+            else:
+                _fallback_storage[TOKEN_KEY] = data["token"]
             return True, "Token refreshed"
         else:
             error_msg = response.json().get("error", "Unknown error")
@@ -306,7 +330,7 @@ def refresh_token():
     except Exception as e:
         return False, f"Token refresh error: {str(e)}"
 
-def get_user_profile():
+def get_user_profile(parent_window=None):
     """Get current user profile"""
     if not is_authenticated():
         return None, "Not authenticated"
@@ -326,6 +350,33 @@ def get_user_profile():
             f"{API_BASE_URL}/users/profile", 
             headers=headers
         )
+
+        # Handle authentication errors
+        if response.status_code in (401, 403):
+            # Try to refresh the token first
+            refresh_success, _ = refresh_token()
+            if refresh_success:
+                # Retry with new token
+                token = get_auth_token()
+                headers["Authorization"] = f"Bearer {token}"
+                response = requests.get(
+                    f"{API_BASE_URL}/users/profile", 
+                    headers=headers
+                )
+            else:
+                # Token refresh failed, try to re-authenticate
+                from src.utils.api_utils import handle_auth_error
+                if handle_auth_error(parent_window):
+                    # User logged in successfully, retry with new token
+                    token = get_auth_token()
+                    headers["Authorization"] = f"Bearer {token}"
+                    response = requests.get(
+                        f"{API_BASE_URL}/users/profile", 
+                        headers=headers
+                    )
+                else:
+                    # User canceled login
+                    return None, "Authentication required"
 
         print(response.json())
         

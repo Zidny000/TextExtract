@@ -2,6 +2,8 @@ import logging
 from flask import Blueprint, request, jsonify, g
 from database.models import User, Device, ApiRequest
 from auth import login_required
+from database.db import supabase
+import datetime
 
 logger = logging.getLogger(__name__)
 user_routes = Blueprint('users', __name__, url_prefix='/users')
@@ -71,9 +73,9 @@ def update_profile():
         
         # Update the user
         try:
-            update_data["updated_at"] = "NOW()"
+            update_data["updated_at"] = datetime.datetime.now().isoformat()
             response = supabase.table("users").update(update_data).eq("id", g.user_id).execute()
-            
+
             if len(response.data) > 0:
                 updated_user = response.data[0]
                 updated_user.pop('password_hash', None)

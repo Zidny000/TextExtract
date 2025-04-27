@@ -267,7 +267,7 @@ def main():
             def fetch_profile_thread():
                 print("Fetching user profile in background...")
                 try:
-                    profile, message = auth.get_user_profile()
+                    profile, message = auth.get_user_profile(root)
                     if profile:
                         app_state.user_profile = profile
                         print(f"Logged in as: {profile['user'].get('email', 'Unknown')}")
@@ -319,6 +319,50 @@ def main():
                 print("No monitor selected. Press Ctrl+Alt+M to select one.")
                 return
 
+            # Check if user is authenticated
+            if auth_required and not auth.is_authenticated():
+                print("Not authenticated, showing login dialog")
+                
+                # Ensure the root window is temporarily visible to properly show dialogs
+                root_was_withdrawn = root.state() == 'withdrawn'
+                if root_was_withdrawn:
+                    print("Making root window temporarily visible for dialog")
+                    root.deiconify()
+                    root.update_idletasks()
+                    
+                # Show login dialog
+                try:
+                    from src.ui.dialogs.auth_dialog import create_auth_dialog
+                    login_dialog = create_auth_dialog(root, "Authentication Required")
+                    
+                    if login_dialog:
+                        is_authenticated = login_dialog.show()
+                        if not is_authenticated:
+                            # User canceled login
+                            print("User canceled login")
+                            # Restore root window state
+                            if root_was_withdrawn:
+                                root.withdraw()
+                            return
+                    else:
+                        print("Could not create login dialog, possibly one is already active")
+                        # Restore root window state
+                        if root_was_withdrawn:
+                            root.withdraw()
+                        return
+                except Exception as e:
+                    print(f"Error showing login dialog: {str(e)}")
+                    print(traceback.format_exc())
+                    messagebox.showerror("Error", f"Could not show login dialog: {str(e)}")
+                    # Restore root window state
+                    if root_was_withdrawn:
+                        root.withdraw()
+                    return
+                
+                # Restore root window state
+                if root_was_withdrawn:
+                    root.withdraw()
+
             # Temporarily make root visible to help with focus issues
             root.update_idletasks()
             
@@ -362,19 +406,59 @@ def main():
             
             # Use a separate function for UI operations to ensure thread safety
             def show_profile_ui():
+                # Check if authenticated first
                 if not auth.is_authenticated():
+                    print("Not authenticated, showing login dialog for profile view")
+                    
+                    # Ensure the root window is temporarily visible to properly show dialogs
+                    root_was_withdrawn = root.state() == 'withdrawn'
+                    if root_was_withdrawn:
+                        print("Making root window temporarily visible for dialog")
+                        root.deiconify()
+                        root.update_idletasks()
+                        
                     # Show login dialog
-                    from src.ui.dialogs.auth_dialog import AuthDialog
-                    login_dialog = AuthDialog(root, "Authentication Required")
-                    if not login_dialog.show():
+                    try:
+                        from src.ui.dialogs.auth_dialog import create_auth_dialog
+                        login_dialog = create_auth_dialog(root, "Authentication Required")
+                        
+                        if login_dialog:
+                            is_authenticated = login_dialog.show()
+                            if not is_authenticated:
+                                # User canceled login
+                                print("User canceled login")
+                                # Restore root window state
+                                if root_was_withdrawn:
+                                    root.withdraw()
+                                return
+                        else:
+                            print("Could not create login dialog, possibly one is already active")
+                            # Restore root window state
+                            if root_was_withdrawn:
+                                root.withdraw()
+                            return
+                    except Exception as e:
+                        print(f"Error showing login dialog: {str(e)}")
+                        print(traceback.format_exc())
+                        messagebox.showerror("Error", f"Could not show login dialog: {str(e)}")
+                        # Restore root window state
+                        if root_was_withdrawn:
+                            root.withdraw()
                         return
+                    
+                    # Restore root window state if we need to continue to profile
+                    if root_was_withdrawn:
+                        root.withdraw()
                 
                 # Temporarily disable floating icon if visible
                 if app_state.floating_icon and app_state.floating_icon.is_visible:
                     app_state.floating_icon.is_responding = False
                 
                 # Temporarily make root visible to help with focus issues
-                root.update_idletasks()
+                root_was_withdrawn = root.state() == 'withdrawn'
+                if root_was_withdrawn:
+                    root.deiconify()
+                    root.update_idletasks()
                 
                 # Show loading indicator
                 loading_window = tk.Toplevel(root)
@@ -397,7 +481,7 @@ def main():
                 # Define a function to fetch profile data in a separate thread
                 def fetch_profile_thread():
                     try:
-                        profile, message = auth.get_user_profile()
+                        profile, message = auth.get_user_profile(root)
                         
                         # Schedule UI update in the main thread
                         def update_ui():
@@ -431,6 +515,9 @@ def main():
                                         # Re-enable floating icon
                                         if app_state.floating_icon and app_state.floating_icon.is_visible:
                                             app_state.floating_icon.is_responding = True
+                                        # Restore root window state
+                                        if root_was_withdrawn:
+                                            root.withdraw()
                                         return result
                                     
                                     profile_dialog.on_close = on_close_with_cleanup
@@ -448,6 +535,9 @@ def main():
                                             # Re-enable floating icon if dialog failed to appear
                                             if app_state.floating_icon and app_state.floating_icon.is_visible:
                                                 app_state.floating_icon.is_responding = True
+                                            # Restore root window state
+                                            if root_was_withdrawn:
+                                                root.withdraw()
                                     
                                     root.after(500, check_dialog)
                                 else:
@@ -455,6 +545,9 @@ def main():
                                     # Re-enable floating icon
                                     if app_state.floating_icon and app_state.floating_icon.is_visible:
                                         app_state.floating_icon.is_responding = True
+                                    # Restore root window state
+                                    if root_was_withdrawn:
+                                        root.withdraw()
                             except Exception as e:
                                 print(f"Error in update_ui: {e}")
                                 print(traceback.format_exc())
@@ -462,6 +555,9 @@ def main():
                                 # Re-enable floating icon
                                 if app_state.floating_icon and app_state.floating_icon.is_visible:
                                     app_state.floating_icon.is_responding = True
+                                # Restore root window state
+                                if root_was_withdrawn:
+                                    root.withdraw()
                     
                         root.after(0, update_ui)
                     except Exception as e:
@@ -477,6 +573,9 @@ def main():
                             # Re-enable floating icon
                             if app_state.floating_icon and app_state.floating_icon.is_visible:
                                 app_state.floating_icon.is_responding = True
+                            # Restore root window state
+                            if root_was_withdrawn:
+                                root.withdraw()
                     
                         root.after(0, show_error)
                 
@@ -505,15 +604,14 @@ def main():
                             # Schedule UI update in main thread
                             def update_ui():
                                 if success:
-                                    # Show login dialog
-                                    from src.ui.dialogs.auth_dialog import AuthDialog
-                                    login_dialog = AuthDialog(root, "Login Required")
-                                    if not login_dialog.show():
-                                        # User canceled login, exit the app
-                                        exit_application()
-                                    else:
-                                        # User logged in, refresh profile
-                                        Thread(target=fetch_profile_thread, daemon=True).start()
+                                    print("Logout successful, user needs to login again")
+                                    # Don't immediately show login dialog - wait for user to interact
+                                    # Instead, just update the app state to reflect being logged out
+                                    app_state.user_profile = None
+                                    # Show a brief message and continue with app
+                                    messagebox.showinfo("Logged Out", "You have been logged out successfully")
+                        
+                            root.after(0, update_ui)
                         except Exception as e:
                             print(f"Error during logout: {e}")
                             print(traceback.format_exc())
@@ -611,8 +709,56 @@ def main():
         # Function to create the floating icon
         def create_floating_icon():
             if not app_state.floating_icon:
+                # Create capture callback that checks authentication first
+                def authenticated_capture():
+                    if auth_required and not auth.is_authenticated():
+                        print("Not authenticated, showing login dialog")
+                        
+                        # Ensure the root window is temporarily visible to properly show dialogs
+                        root_was_withdrawn = root.state() == 'withdrawn'
+                        if root_was_withdrawn:
+                            print("Making root window temporarily visible for dialog")
+                            root.deiconify()
+                            root.update_idletasks()
+                            
+                        # Show login dialog
+                        try:
+                            from src.ui.dialogs.auth_dialog import create_auth_dialog
+                            login_dialog = create_auth_dialog(root, "Authentication Required")
+                            
+                            if login_dialog:
+                                is_authenticated = login_dialog.show()
+                                if not is_authenticated:
+                                    # User canceled login
+                                    print("User canceled login")
+                                    # Restore root window state
+                                    if root_was_withdrawn:
+                                        root.withdraw()
+                                    return
+                            else:
+                                print("Could not create login dialog, possibly one is already active")
+                                # Restore root window state
+                                if root_was_withdrawn:
+                                    root.withdraw()
+                                return
+                        except Exception as e:
+                            print(f"Error showing login dialog: {str(e)}")
+                            print(traceback.format_exc())
+                            messagebox.showerror("Error", f"Could not show login dialog: {str(e)}")
+                            # Restore root window state
+                            if root_was_withdrawn:
+                                root.withdraw()
+                            return
+                        
+                        # Restore root window state
+                        if root_was_withdrawn:
+                            root.withdraw()
+                        
+                    # Proceed with capture
+                    safe_capture()
+                
                 app_state.floating_icon = FloatingIcon(
-                    capture_callback=safe_capture,
+                    capture_callback=authenticated_capture,
                     monitor_select_callback=safe_change_monitor_by_index,
                     get_selected_monitor=get_selected_monitor,
                     master=root  # Pass root as parent
@@ -726,18 +872,58 @@ def main():
         # Setup the system tray icon
         setup_tray_icon()
         
-        # Start the command processor
-        process_commands()
+        # Set up authentication checker to periodically verify token
+        def check_auth_status():
+            if auth.is_authenticated():
+                # Check profile every few minutes to catch token expiration
+                try:
+                    # Only attempt to refresh if we haven't already shown an auth dialog
+                    from src.ui.dialogs.auth_dialog import _active_auth_dialogs
+                    if not _active_auth_dialogs:
+                        threading.Thread(
+                            target=lambda: auth.get_user_profile(root),
+                            daemon=True
+                        ).start()
+                except Exception as e:
+                    print(f"Error checking auth status: {e}")
+                
+            # Schedule the next check (every 5 minutes)
+            if app_state.running:
+                root.after(300000, check_auth_status)  # 5 minutes
+                
+        # Start auth checker after a delay
+        if auth_success:
+            root.after(60000, check_auth_status)  # Start after 1 minute
+                
+        # Start command processor
+        root.after(100, process_commands)
         
-        # Start the Tkinter main loop - this blocks until the application exits
+        # Hide root window
+        root.withdraw()
+        
+        # Hide from taskbar
+        root.wm_attributes("-alpha", 0)
+        
+        # Enter Tkinter main loop
         root.mainloop()
+        
+        # Application has exited, clean up
+        print("Application exiting, cleaning up...")
+        app_state.running = False
+        if app_state.floating_icon:
+            app_state.floating_icon.destroy()
+        if app_state.tray_icon:
+            app_state.tray_icon.stop()
+        if single_instance_socket:
+            single_instance_socket.close()
+        print("Cleanup complete. Goodbye!")
+        
     except Exception as e:
-        print(f"CRITICAL ERROR: {e}")
+        print(f"Critical error: {e}")
         print(traceback.format_exc())
-        with open("error_log.txt", "w") as f:
-            f.write(f"Error: {str(e)}\n")
-            f.write(traceback.format_exc())
-        input("Press Enter to exit...")
+        messagebox.showerror("Error", f"A critical error occurred:\n\n{str(e)}")
+        
+    return
 
 if __name__ == "__main__":
     main()
