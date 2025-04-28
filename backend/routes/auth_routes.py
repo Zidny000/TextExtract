@@ -9,6 +9,9 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 auth_routes = Blueprint('auth', __name__, url_prefix='/auth')
@@ -19,7 +22,7 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USERNAME = os.environ.get("SMTP_USERNAME", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "noreply@textextract.com")
-APP_URL = os.environ.get("APP_URL", "http://localhost:5000")
+APP_URL = os.environ.get("APP_URL", "http://localhost:3000")
 
 # Store verification and reset tokens temporarily (in production, these should be in a database)
 verification_tokens = {}  # {token: {'email': email, 'expires': datetime}}
@@ -234,7 +237,7 @@ def request_password_reset():
         }
         
         # Create reset URL (would point to a frontend page in production)
-        reset_url = f"{APP_URL}/auth/reset-password/{reset_token}"
+        reset_url = f"{APP_URL}/reset-password/{reset_token}"
         
         # Send reset email
         email_content = f"""
@@ -401,7 +404,7 @@ def request_email_verification():
             'expires': datetime.now() + timedelta(hours=24)
         }
         
-        verification_url = f"{APP_URL}/auth/verify-email/{verification_token}"
+        verification_url = f"{APP_URL}/verify-email/{verification_token}"
         email_content = f"""
         <html>
             <body>
@@ -463,4 +466,40 @@ def delete_account():
         
     except Exception as e:
         logger.error(f"Error in delete_account route: {str(e)}")
-        return jsonify({"error": "An error occurred deleting your account"}), 500 
+        return jsonify({"error": "An error occurred deleting your account"}), 500
+
+@auth_routes.route('/change-password', methods=['POST'])
+@login_required
+def change_password():
+    """Change a user's password"""
+    try:
+        data = request.json
+        
+        # Validate required fields
+        if not data or not data.get('current_password') or not data.get('new_password'):
+            return jsonify({"error": "Current password and new password are required"}), 400
+        
+        # Verify current password
+        if not User.verify_password(g.user, data['current_password']):
+            return jsonify({"error": "Current password is incorrect"}), 401
+        
+        # Update password in database
+        from database.db import supabase
+        from flask_bcrypt import Bcrypt
+        bcrypt = Bcrypt()
+        
+        password_hash = bcrypt.generate_password_hash(data['new_password']).decode('utf-8')
+        
+        response = supabase.table("users").update({
+            "password_hash": password_hash,
+            "updated_at": datetime.now().isoformat()
+        }).eq("id", g.user['id']).execute()
+        
+        if len(response.data) == 0:
+            return jsonify({"error": "Failed to update password"}), 500
+        
+        return jsonify({"message": "Password has been changed successfully"}), 200
+        
+    except Exception as e:
+        logger.error(f"Error in change_password route: {str(e)}")
+        return jsonify({"error": "An error occurred changing your password"}), 500 
