@@ -10,6 +10,12 @@ from tkinter import messagebox, simpledialog
 from PIL import Image, ImageTk
 import threading
 import webbrowser
+import socket
+import http.server
+import socketserver
+import urllib.parse
+from threading import Thread
+import time
 
 # Set up basic logging
 logging.basicConfig(level=logging.INFO, 
@@ -21,6 +27,10 @@ print("Initializing auth module...")
 # API Base URL - change this to your production URL when deploying
 API_BASE_URL = "http://localhost:5000"
 print(f"Using API endpoint: {API_BASE_URL}")
+
+# Auth callback server settings
+AUTH_CALLBACK_PORT = 9845  # Choose an available port
+AUTH_REDIRECT_URL = f"http://localhost:{AUTH_CALLBACK_PORT}/callback"
 
 # Key for storing auth token in keyring
 SERVICE_NAME = "TextExtract"
@@ -135,17 +145,326 @@ def get_user_id():
         print(f"Error getting user ID: {e}")
         return None
 
+# Handler for the authorization callback
+class AuthCallbackHandler(http.server.SimpleHTTPRequestHandler):
+    """Handler for authorization callback"""
+    def __init__(self, *args, auth_callback=None, **kwargs):
+        print("Initializing AuthCallbackHandler")
+        self.auth_callback = auth_callback
+        super().__init__(*args, **kwargs)
+    
+    def log_message(self, format, *args):
+        # Enable logging for better visibility
+        print(f"AuthCallbackHandler: {format % args}")
+    
+    def do_GET(self):
+        """Handle GET request"""
+        print(f"Received callback request: {self.path}")
+        try:
+            # Parse the path
+            parsed_path = urllib.parse.urlparse(self.path)
+            
+            # Check if this is the callback route
+            if parsed_path.path == "/callback":
+                # Extract the token from query parameters
+                query = urllib.parse.parse_qs(parsed_path.query)
+                token = query.get("token", [""])[0]
+                user_id = query.get("user_id", [""])[0]
+                email = query.get("email", [""])[0]
+                
+                print(f"Received token: {token[:10]}... (truncated)")
+                print(f"Received user_id: {user_id}")
+                print(f"Received email: {email}")
+                
+                # Process the token
+                if token and user_id and email:
+                    # Save the authentication data
+                    print("Saving authentication data...")
+                    success = save_auth_data(token, user_id, email)
+                    if success:
+                        message = "Authentication successful! You can now close this window and return to the app."
+                    else:
+                        message = "Authentication succeeded, but there was an error saving your credentials. Please try again."
+                        success = False
+                else:
+                    success = False
+                    missing = []
+                    if not token:
+                        missing.append("token")
+                    if not user_id:
+                        missing.append("user ID")
+                    if not email:
+                        missing.append("email")
+                    message = f"Authentication failed. Missing information: {', '.join(missing)}. Please try again."
+                
+                # Send response to browser
+                print(f"Sending response to browser: success={success}")
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html')
+                self.end_headers()
+                
+                # Create a simple HTML response
+                response = f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>TextExtract Authentication</title>
+                    <style>
+                        body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
+                        .container {{ max-width: 600px; margin: 0 auto; }}
+                        .success {{ color: green; }}
+                        .error {{ color: red; }}
+                        .message {{ margin: 20px 0; font-size: 18px; }}
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>TextExtract</h1>
+                        <div class="message {'success' if success else 'error'}">
+                            {message}
+                        </div>
+                        <p>You can now close this window.</p>
+                    </div>
+                    <script>
+                        // Log authentication status for debugging
+                        console.log("Authentication status: {success}");
+                        
+                        // Close the window automatically after 5 seconds
+                        setTimeout(function() {{
+                            window.close();
+                        }}, 5000);
+                    </script>
+                </body>
+                </html>
+                """
+                
+                self.wfile.write(response.encode())
+                
+                # Call the auth callback if provided
+                if self.auth_callback:
+                    print("Calling auth callback function...")
+                    self.auth_callback(success, token, user_id, email)
+                else:
+                    print("No auth callback function provided")
+                
+                return
+            
+            # For other routes, return 404
+            print(f"Path not recognized: {parsed_path.path}")
+            self.send_response(404)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b"Not found. Use /callback endpoint for authentication.")
+        except Exception as e:
+            print(f"Error in callback handler: {e}")
+            print(traceback.format_exc())
+            self.send_response(500)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(f"Server error: {str(e)}".encode())
+
+def is_port_in_use(port):
+    """Check if the given port is already in use"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex(('localhost', port)) == 0
+    except Exception as e:
+        print(f"Error checking if port is in use: {e}")
+        return False  # Assume port is not in use to allow process to continue
+
+def start_auth_callback_server(auth_callback):
+    """Start the authentication callback server"""
+    # Declare globals at the beginning of the function
+    global AUTH_CALLBACK_PORT
+    global AUTH_REDIRECT_URL
+    
+    # First check if the port is already in use
+    if is_port_in_use(AUTH_CALLBACK_PORT):
+        print(f"Port {AUTH_CALLBACK_PORT} is already in use. Attempting to close any existing server.")
+        try:
+            # Try to create a socket and connect to the port to see if it's our server
+            test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            test_socket.settimeout(1)  # Short timeout
+            test_socket.connect(('localhost', AUTH_CALLBACK_PORT))
+            test_socket.close()
+            
+            # If we got this far, there's something already listening on this port
+            # Let's try a different port
+            alt_port = AUTH_CALLBACK_PORT + 1
+            if not is_port_in_use(alt_port):
+                print(f"Using alternative port {alt_port} for callback server")
+                AUTH_CALLBACK_PORT = alt_port
+                AUTH_REDIRECT_URL = f"http://localhost:{AUTH_CALLBACK_PORT}/callback"
+            else:
+                print(f"Both primary and alternative ports are in use. Cannot start callback server.")
+                return None
+                
+        except (socket.timeout, ConnectionRefusedError):
+            # If connection fails, the port might be in a TIME_WAIT state
+            print("Port appears to be in TIME_WAIT state, trying to proceed anyway")
+        except Exception as e:
+            print(f"Error while checking port: {e}")
+            return None
+    
+    try:
+        # Create a handler with our callback
+        handler = lambda *args, **kwargs: AuthCallbackHandler(*args, auth_callback=auth_callback, **kwargs)
+        
+        # Create and start the server with a timeout to handle socket errors
+        server = socketserver.TCPServer(("", AUTH_CALLBACK_PORT), handler)
+        server.timeout = 0.5  # Set a timeout to prevent blocking
+        
+        # Run the server in a background thread
+        server_thread = Thread(target=server.serve_forever)
+        server_thread.daemon = True  # Don't keep process alive because of this thread
+        server_thread.start()
+        
+        print(f"Auth callback server started on port {AUTH_CALLBACK_PORT}")
+        return server
+    except Exception as e:
+        print(f"Failed to start callback server: {e}")
+        print(traceback.format_exc())
+        return None
+
+def stop_auth_callback_server(server):
+    """Stop the authentication callback server"""
+    if server:
+        server.shutdown()
+        logger.info("Auth callback server stopped")
+
 def is_authenticated():
     """Check if user is authenticated"""
-    try:
-        token = get_auth_token()
-        is_auth = token is not None and token != ""
-        print(f"Authentication check: {is_auth}")
-        return is_auth
-    except Exception as e:
-        print(f"Error checking authentication: {e}")
-        print(traceback.format_exc())
-        return False
+    token = get_auth_token()
+    return token is not None and token != ""
+
+def web_authenticate(callback=None):
+    """Start the web-based authentication flow"""
+    print("Starting web-based authentication flow...")
+    auth_result = {"success": False, "message": ""}
+    auth_completed = threading.Event()
+    
+    # Define the callback function that will be called when authentication completes
+    def auth_callback(success, token, user_id, email):
+        print(f"Auth callback called with success={success}")
+        if token:
+            print(f"Received token: {token[:10]}... (truncated)")
+        auth_result["success"] = success
+        if success:
+            auth_result["message"] = "Authentication successful"
+        else:
+            auth_result["message"] = "Authentication failed"
+        auth_completed.set()
+    
+    # Start the callback server
+    print("Starting auth callback server...")
+    server = start_auth_callback_server(auth_callback)
+    if not server:
+        print("Failed to start authentication callback server")
+        return False, "Failed to start authentication server. Another instance might be running."
+    
+    # Get device ID for authentication
+    device_id = get_device_id()
+    print(f"Using device ID: {device_id}")
+    
+    # Generate a state parameter for security
+    state = str(uuid.uuid4())
+    
+    # Construct the authentication URL
+    auth_url = f"{API_BASE_URL}/auth/web-login?redirect_uri={urllib.parse.quote(AUTH_REDIRECT_URL)}&device_id={device_id}&state={state}"
+    print(f"Authentication URL: {auth_url}")
+    
+    # Define a function to open the browser in a separate thread
+    def open_browser_thread():
+        # Open the authentication URL in the default browser
+        try:
+            print("Opening browser for authentication...")
+            # Try different browser opening methods if one fails
+            browser_opened = False
+            
+            # First try with the default browser
+            if webbrowser.open(auth_url):
+                print("Browser opened successfully using default method")
+                browser_opened = True
+            else:
+                # Try with new=2 to force a new browser window
+                print("First browser open attempt failed, trying with new=2...")
+                if webbrowser.open(auth_url, new=2):
+                    print("Browser opened successfully using new=2")
+                    browser_opened = True
+                else:
+                    # Try with specific browsers
+                    print("Second browser open attempt failed, trying specific browsers...")
+                    for browser in ['chrome', 'firefox', 'safari', 'edge']:
+                        try:
+                            browser_controller = webbrowser.get(browser)
+                            if browser_controller.open(auth_url):
+                                print(f"Browser opened successfully using {browser}")
+                                browser_opened = True
+                                break
+                        except Exception as e:
+                            print(f"Failed to open {browser}: {e}")
+                            continue
+            
+            # If all browser attempts failed, try OS-specific methods
+            if not browser_opened:
+                if os.name == 'nt':
+                    print("Trying os.startfile as last resort...")
+                    os.startfile(auth_url)
+                    browser_opened = True
+                elif sys.platform == 'darwin':  # macOS
+                    print("Trying subprocess with 'open' command (macOS)...")
+                    import subprocess
+                    subprocess.call(['open', auth_url])
+                    browser_opened = True
+                elif os.environ.get('DISPLAY'):  # Linux with display
+                    print("Trying subprocess with 'xdg-open' command (Linux)...")
+                    import subprocess
+                    subprocess.call(['xdg-open', auth_url])
+                    browser_opened = True
+            
+            if not browser_opened:
+                print("All browser opening attempts failed")
+                auth_result["success"] = False
+                auth_result["message"] = "Failed to open browser"
+                auth_completed.set()
+        
+        except Exception as e:
+            print(f"Error opening browser: {e}")
+            print(traceback.format_exc())
+            auth_result["success"] = False
+            auth_result["message"] = f"Error opening browser: {str(e)}"
+            auth_completed.set()
+    
+    # Start the browser opening in a separate thread
+    browser_thread = Thread(target=open_browser_thread)
+    browser_thread.daemon = True
+    browser_thread.start()
+    
+    # Wait for authentication to complete (with timeout)
+    print(f"Waiting up to 5 minutes for authentication to complete...")
+    timeout = 300  # 5 minutes timeout
+    authentication_complete = auth_completed.wait(timeout)
+    
+    if not authentication_complete:
+        print("Authentication timed out")
+        stop_auth_callback_server(server)
+        return False, "Authentication timed out after 5 minutes"
+    
+    # Stop the callback server
+    print("Authentication completed, stopping callback server...")
+    stop_auth_callback_server(server)
+    
+    # Call the user-provided callback if authentication was successful
+    if auth_result["success"] and callback:
+        try:
+            print("Authentication successful, calling callback function...")
+            callback()
+        except Exception as e:
+            print(f"Error in auth success callback: {e}")
+            print(traceback.format_exc())
+    
+    print(f"Web authentication completed with result: {auth_result['success']}")
+    return auth_result["success"], auth_result["message"]
 
 def clear_auth_data():
     """Clear all authentication data"""
@@ -561,7 +880,7 @@ class AuthDialog:
             # Ensure parent is visible
             parent.update_idletasks()
             
-            # Create dialog
+            # Create dialog first
             self.dialog = tk.Toplevel(parent)
             self.dialog.title(title)
             self.dialog.geometry("400x450")
@@ -574,11 +893,6 @@ class AuthDialog:
             
             # Center the dialog
             self.center_window()
-            
-            # Ensure dialog is visible and brought to front
-            self.dialog.update_idletasks()
-            self.dialog.deiconify()
-            self.dialog.lift()
             
             # Create UI
             self.create_ui()
@@ -595,11 +909,15 @@ class AuthDialog:
         """Handle dialog close"""
         print("Dialog close requested by user")
         self.result = False
-        self.dialog.destroy()
+        if hasattr(self, 'dialog') and self.dialog:
+            self.dialog.destroy()
         
     def center_window(self):
         """Center the dialog on screen"""
         try:
+            if not hasattr(self, 'dialog') or not self.dialog:
+                return
+                
             self.dialog.update_idletasks()
             width = self.dialog.winfo_width()
             height = self.dialog.winfo_height()
@@ -612,6 +930,9 @@ class AuthDialog:
 
     def create_ui(self):
         """Create UI elements"""
+        if not hasattr(self, 'dialog') or not self.dialog:
+            return
+            
         # Main frame with padding
         main_frame = tk.Frame(self.dialog, padx=20, pady=20)
         main_frame.pack(fill='both', expand=True)
@@ -649,7 +970,7 @@ class AuthDialog:
         self.show_login()
         
         # Set dialog to close on Escape key
-        self.dialog.bind("<Escape>", lambda event: self.dialog.destroy())
+        self.dialog.bind("<Escape>", lambda event: self.on_close())
         
     def show_login(self):
         """Show login form"""
@@ -792,6 +1113,10 @@ class AuthDialog:
         """Show the dialog and return if login was successful"""
         print("Showing AuthDialog and waiting for result...")
         try:
+            if not hasattr(self, 'dialog') or not self.dialog:
+                print("Dialog not initialized properly")
+                return False
+                
             # Force parent to be visible momentarily to ensure dialog appears properly
             if self.parent.state() == 'withdrawn':
                 print("Parent is withdrawn, making visible momentarily")
@@ -1034,302 +1359,6 @@ class PasswordResetDialog:
         self.dialog.focus_set()
         self.dialog.wait_window()
 
-class UserProfileDialog:
-    """Enhanced user profile dialog with account management options"""
-    
-    def __init__(self, parent, profile_data):
-        self.parent = parent
-        self.profile_data = profile_data
-        self.user = profile_data["user"]
-        self.usage = profile_data["usage"]
-        
-        # Create dialog
-        self.dialog = tk.Toplevel(parent)
-        self.dialog.title("User Profile")
-        self.dialog.geometry("450x500")
-        self.dialog.resizable(False, False)
-        self.dialog.transient(parent)
-        self.dialog.grab_set()
-        
-        # Center the dialog
-        self.dialog.update_idletasks()
-        width = self.dialog.winfo_width()
-        height = self.dialog.winfo_height()
-        x = (self.dialog.winfo_screenwidth() // 2) - (width // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (height // 2)
-        self.dialog.geometry(f'{width}x{height}+{x}+{y}')
-        
-        # Create UI
-        self.create_ui()
-        
-    def create_ui(self):
-        # Main frame with padding
-        main_frame = tk.Frame(self.dialog, padx=20, pady=20)
-        main_frame.pack(fill='both', expand=True)
-        
-        # User info section
-        tk.Label(main_frame, text="User Profile", font=("Arial", 16, "bold")).pack(pady=(0, 15))
-        
-        # Create a notebook for tabs
-        import tkinter.ttk as ttk
-        self.notebook = ttk.Notebook(main_frame)
-        self.notebook.pack(fill='both', expand=True, pady=(10, 15))
-        
-        # Profile tab
-        profile_frame = tk.Frame(self.notebook)
-        self.notebook.add(profile_frame, text="Profile")
-        
-        # Usage tab
-        usage_frame = tk.Frame(self.notebook)
-        self.notebook.add(usage_frame, text="Usage")
-        
-        # Account tab
-        account_frame = tk.Frame(self.notebook)
-        self.notebook.add(account_frame, text="Account")
-        
-        # Build Profile tab
-        self.build_profile_tab(profile_frame)
-        
-        # Build Usage tab
-        self.build_usage_tab(usage_frame)
-        
-        # Build Account tab
-        self.build_account_tab(account_frame)
-        
-        # Button frame at the bottom
-        button_frame = tk.Frame(main_frame)
-        button_frame.pack(fill='x', pady=(15, 0))
-        
-        # Close button
-        close_btn = tk.Button(button_frame, text="Close", command=self.dialog.destroy)
-        close_btn.pack(side='right', padx=5)
-        
-    def build_profile_tab(self, parent):
-        # Email
-        tk.Label(parent, text="Email:", font=("Arial", 10, "bold"), anchor='w').grid(row=0, column=0, sticky='w', pady=5, padx=5)
-        tk.Label(parent, text=self.user.get("email", "Unknown"), anchor='w').grid(row=0, column=1, sticky='w', pady=5)
-        
-        # Email verification status
-        is_verified = self.user.get("email_verified", False)
-        status_text = "Verified" if is_verified else "Not Verified"
-        status_color = "green" if is_verified else "red"
-        
-        tk.Label(parent, text="Status:", font=("Arial", 10, "bold"), anchor='w').grid(row=1, column=0, sticky='w', pady=5, padx=5)
-        status_label = tk.Label(parent, text=status_text, fg=status_color, anchor='w')
-        status_label.grid(row=1, column=1, sticky='w', pady=5)
-        
-        # Verification button if not verified
-        if not is_verified:
-            verify_btn = tk.Button(parent, text="Verify Email", command=self.request_verification)
-            verify_btn.grid(row=1, column=2, padx=5)
-        
-        # Full name
-        tk.Label(parent, text="Name:", font=("Arial", 10, "bold"), anchor='w').grid(row=2, column=0, sticky='w', pady=5, padx=5)
-        self.name_var = tk.StringVar(value=self.user.get("full_name", ""))
-        name_entry = tk.Entry(parent, textvariable=self.name_var, width=30)
-        name_entry.grid(row=2, column=1, sticky='w', pady=5, columnspan=2)
-        
-        # Plan
-        tk.Label(parent, text="Plan:", font=("Arial", 10, "bold"), anchor='w').grid(row=3, column=0, sticky='w', pady=5, padx=5)
-        plan_text = self.user.get("plan_type", "Free").capitalize()
-        tk.Label(parent, text=plan_text, anchor='w').grid(row=3, column=1, sticky='w', pady=5)
-        
-        # Member since
-        tk.Label(parent, text="Member Since:", font=("Arial", 10, "bold"), anchor='w').grid(row=4, column=0, sticky='w', pady=5, padx=5)
-        created_date = self.user.get("created_at", "Unknown")
-        # Format date if it's a string
-        if isinstance(created_date, str) and 'T' in created_date:
-            try:
-                from datetime import datetime
-                date_obj = datetime.fromisoformat(created_date.replace('Z', '+00:00'))
-                created_date = date_obj.strftime("%B %d, %Y")
-            except:
-                pass
-        tk.Label(parent, text=created_date, anchor='w').grid(row=4, column=1, sticky='w', pady=5)
-        
-        # Save button
-        save_btn = tk.Button(parent, text="Save Changes", command=self.save_profile)
-        save_btn.grid(row=5, column=1, sticky='w', pady=15)
-        
-        # Status message
-        self.profile_status_var = tk.StringVar()
-        tk.Label(parent, textvariable=self.profile_status_var, fg="red").grid(row=6, column=0, columnspan=3, pady=5)
-        
-    def build_usage_tab(self, parent):
-        # Today's usage
-        tk.Label(parent, text="Today's Usage:", font=("Arial", 10, "bold"), anchor='w').grid(row=0, column=0, sticky='w', pady=10, padx=5)
-        tk.Label(parent, text=f"{self.usage.get('today_requests', 0)} requests used", anchor='w').grid(row=0, column=1, sticky='w', pady=10)
-        
-        # Remaining requests
-        tk.Label(parent, text="Remaining Requests:", font=("Arial", 10, "bold"), anchor='w').grid(row=1, column=0, sticky='w', pady=10, padx=5)
-        tk.Label(parent, text=f"{self.usage.get('remaining_requests', 0)} of {self.usage.get('plan_limit', 0)}", anchor='w').grid(row=1, column=1, sticky='w', pady=10)
-        
-        # Progress bar for usage
-        import tkinter.ttk as ttk
-        tk.Label(parent, text="Usage Progress:", font=("Arial", 10, "bold"), anchor='w').grid(row=2, column=0, sticky='w', pady=10, padx=5)
-        
-        try:
-            used = int(self.usage.get('today_requests', 0))
-            total = int(self.usage.get('plan_limit', 100))
-            progress = min(used / total * 100 if total > 0 else 0, 100)
-        except (ValueError, ZeroDivisionError):
-            progress = 0
-            
-        progress_bar = ttk.Progressbar(parent, orient="horizontal", length=200, mode="determinate")
-        progress_bar["value"] = progress
-        progress_bar.grid(row=2, column=1, sticky='w', pady=10)
-        
-        # Devices section
-        tk.Label(parent, text="Registered Devices:", font=("Arial", 10, "bold"), anchor='w').grid(row=3, column=0, sticky='w', pady=(20,10), padx=5, columnspan=2)
-        
-        # Devices list (in a frame with scrollbar if needed)
-        devices_frame = tk.Frame(parent)
-        devices_frame.grid(row=4, column=0, columnspan=2, sticky='ew', padx=5)
-        
-        devices = self.profile_data.get("devices", [])
-        if devices:
-            for i, device in enumerate(devices[:5]):  # Show max 5 devices
-                device_name = device.get("device_name", "Unknown Device")
-                device_type = device.get("device_type", "")
-                if device_type:
-                    device_name = f"{device_name} ({device_type})"
-                    
-                tk.Label(devices_frame, text=device_name, anchor='w').grid(row=i, column=0, sticky='w', pady=2)
-                last_active = device.get("last_active", "")
-                if last_active and isinstance(last_active, str) and 'T' in last_active:
-                    try:
-                        from datetime import datetime
-                        date_obj = datetime.fromisoformat(last_active.replace('Z', '+00:00'))
-                        last_active = date_obj.strftime("%b %d, %Y")
-                    except:
-                        pass
-                tk.Label(devices_frame, text=f"Last active: {last_active}", anchor='w', fg="gray").grid(row=i, column=1, sticky='w', pady=2, padx=10)
-        else:
-            tk.Label(devices_frame, text="No devices registered", fg="gray").grid(row=0, column=0, sticky='w', pady=5)
-            
-    def build_account_tab(self, parent):
-        # Change password section
-        tk.Label(parent, text="Change Password", font=("Arial", 12, "bold")).grid(row=0, column=0, sticky='w', pady=(10,15), padx=5, columnspan=2)
-        
-        change_pwd_btn = tk.Button(parent, text="Change Password", width=20, command=self.show_change_password)
-        change_pwd_btn.grid(row=1, column=0, sticky='w', padx=5, pady=5)
-        
-        # Account management section
-        tk.Label(parent, text="Account Management", font=("Arial", 12, "bold")).grid(row=3, column=0, sticky='w', pady=(30,15), padx=5, columnspan=2)
-        
-        delete_btn = tk.Button(parent, text="Delete Account", width=20, fg="red", command=self.confirm_delete_account)
-        delete_btn.grid(row=4, column=0, sticky='w', padx=5, pady=5)
-        
-        # Warning label
-        tk.Label(parent, text="Warning: Account deletion is permanent and cannot be undone.", 
-                fg="red", wraplength=350).grid(row=5, column=0, sticky='w', padx=5, pady=10, columnspan=2)
-                
-    def save_profile(self):
-        """Save profile changes"""
-        self.profile_status_var.set("Saving changes...")
-        self.dialog.update()
-        
-        new_name = self.name_var.get().strip()
-        
-        # Update user profile in a separate thread
-        def update_thread():
-            try:
-                token = get_auth_token()
-                device_id = get_device_id()
-                
-                headers = {
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {token}",
-                    "X-Device-ID": device_id,
-                    "X-App-Version": os.getenv("APP_VERSION", "1.0.0")
-                }
-                
-                payload = {
-                    "full_name": new_name
-                }
-                
-                response = requests.put(
-                    f"{API_BASE_URL}/users/profile", 
-                    headers=headers,
-                    json=payload,
-                    timeout=10
-                )
-                
-                if response.status_code == 200:
-                    # Update UI from main thread
-                    self.dialog.after(0, lambda: self.profile_status_var.set("Profile updated successfully"))
-                    # Update local data
-                    self.user["full_name"] = new_name
-                else:
-                    error_msg = "Failed to update profile"
-                    try:
-                        error_msg = response.json().get("error", error_msg)
-                    except:
-                        pass
-                    self.dialog.after(0, lambda: self.profile_status_var.set(error_msg))
-            except Exception as e:
-                print(f"Error updating profile: {e}")
-                self.dialog.after(0, lambda: self.profile_status_var.set(f"Error: {str(e)}"))
-                
-        threading.Thread(target=update_thread).start()
-        
-    def request_verification(self):
-        """Request email verification"""
-        # Call the API in a separate thread
-        def verify_thread():
-            success, message = request_email_verification()
-            if success:
-                messagebox.showinfo("Verification Email Sent", 
-                                   "A verification email has been sent to your email address. Please check your inbox and follow the instructions.")
-            else:
-                messagebox.showerror("Error", f"Failed to send verification email: {message}")
-                
-        threading.Thread(target=verify_thread).start()
-        
-    def show_change_password(self):
-        """Show change password dialog"""
-        # We'll use the password reset request dialog to trigger the reset flow
-        reset_dialog = PasswordResetRequestDialog(self.dialog)
-        reset_dialog.email_entry.insert(0, self.user.get("email", ""))
-        reset_dialog.email_entry.config(state='disabled')  # Don't allow changing email
-        reset_dialog.show()
-        
-    def confirm_delete_account(self):
-        """Confirm account deletion"""
-        if messagebox.askyesno("Confirm Deletion", 
-                              "Are you sure you want to delete your account? This action cannot be undone and all your data will be permanently deleted.",
-                              icon="warning"):
-            # Show password confirmation dialog
-            password = simpledialog.askstring("Password Required", 
-                                            "Please enter your password to confirm account deletion:",
-                                            show='*',
-                                            parent=self.dialog)
-            
-            if password:
-                # Call delete account in a separate thread
-                def delete_thread():
-                    success, message = delete_account(password)
-                    if success:
-                        # Close dialog and show success message
-                        self.dialog.after(0, self.dialog.destroy)
-                        messagebox.showinfo("Account Deleted", "Your account has been successfully deleted.")
-                        
-                        # Force logout/app restart
-                        try:
-                            from main import exit_application
-                            exit_application()
-                        except:
-                            messagebox.showinfo("Restart Required", "Please restart the application to complete the account deletion process.")
-                    else:
-                        messagebox.showerror("Error", f"Failed to delete account: {message}")
-                        
-                threading.Thread(target=delete_thread).start()
-                
-    def show(self):
-        """Show the dialog"""
-        self.dialog.focus_set()
-        self.dialog.wait_window()
-
 # Utility function to handle password reset tokens from URLs
 def handle_password_reset_token(parent, token):
     """Handle password reset token from URL"""
@@ -1343,4 +1372,29 @@ def open_browser_url(url):
         return True
     except Exception as e:
         print(f"Error opening URL: {e}")
-        return False 
+        return False
+
+def reset_authentication_state():
+    """For debugging: Completely reset all authentication state"""
+    print("Completely resetting all authentication state")
+    
+    # Clear all auth data in keyring or memory storage
+    clear_auth_data()
+    
+    # Clear any running servers
+    try:
+        # Check if there's a socket open on the auth callback port
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        result = sock.connect_ex(('localhost', AUTH_CALLBACK_PORT))
+        sock.close()
+        
+        if result == 0:
+            print(f"Port {AUTH_CALLBACK_PORT} is in use, attempting to close it")
+            # Just in case there's a hanging server instance
+            dummy_server = socketserver.TCPServer(("", AUTH_CALLBACK_PORT + 1), http.server.SimpleHTTPRequestHandler)
+            dummy_server.server_close()
+    except Exception as e:
+        print(f"Error checking for open servers: {e}")
+    
+    print("Authentication state reset complete")
+    return True 

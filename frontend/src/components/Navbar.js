@@ -8,7 +8,7 @@ import {
   Box,
   Link,
 } from '@mui/material';
-import { useAuth } from '../utils/AuthContext';
+import { useAuth } from '../context/AuthContext';
 
 const Navbar = () => {
   const { user, logout } = useAuth();

@@ -84,10 +84,10 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
 
     # Check if user is authenticated
     if not auth.is_authenticated():
-        # Show login dialog
-        from src.ui.dialogs.auth_dialog import AuthDialog
-        login_dialog = AuthDialog(parent_window, "Authentication Required")
-        is_authenticated = login_dialog.show()
+        # Show login modal
+        from src.ui.dialogs.auth_modal import create_auth_modal
+        login_modal = create_auth_modal(parent_window, "Authentication Required")
+        is_authenticated = login_modal.show() if login_modal else False
         
         if not is_authenticated:
             print("Authentication required to use OCR features")
@@ -161,10 +161,10 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
                         timeout=30
                     )
                 else:
-                    # Show login dialog to get new credentials
-                    from src.ui.dialogs.auth_dialog import AuthDialog
-                    login_dialog = AuthDialog(parent_window, "Session Expired")
-                    is_authenticated = login_dialog.show()
+                    # Show login modal to get new credentials
+                    from src.ui.dialogs.auth_modal import create_auth_modal
+                    login_modal = create_auth_modal(parent_window, "Session Expired")
+                    is_authenticated = login_modal.show() if login_modal else False
                     
                     if not is_authenticated:
                         print("Authentication required to use OCR features")

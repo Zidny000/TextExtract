@@ -1,5 +1,5 @@
 import logging
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, request, jsonify, g, redirect, render_template, Response
 from database.models import User, Device
 from auth import generate_token, login_required, extract_device_info
 import secrets
@@ -10,6 +10,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+import traceback
 
 load_dotenv()
 
@@ -502,4 +503,122 @@ def change_password():
         
     except Exception as e:
         logger.error(f"Error in change_password route: {str(e)}")
-        return jsonify({"error": "An error occurred changing your password"}), 500 
+        return jsonify({"error": "An error occurred changing your password"}), 500
+
+@auth_routes.route('/web-login', methods=['GET'])
+def web_login():
+    """Redirect to the web login page with query parameters for the desktop app callback"""
+    # Get parameters from query string
+    redirect_uri = request.args.get('redirect_uri', '')
+    device_id = request.args.get('device_id', '')
+    state = request.args.get('state', '')
+    
+    logger.info(f"Web login request received. Redirect URI: {redirect_uri}, Device ID: {device_id}, State: {state}")
+    
+    if not redirect_uri:
+        logger.error("Missing redirect_uri parameter in web-login request")
+        return jsonify({"error": "Missing redirect_uri parameter"}), 400
+    
+    # Build a login page URL that will include these parameters
+    login_url = f"{APP_URL}/login?redirect_uri={redirect_uri}&device_id={device_id}&state={state}"
+    
+    # Log the redirect URL
+    logger.info(f"Redirecting to: {login_url}")
+    
+    # Create an HTML response if the redirect doesn't work
+    html_response = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>TextExtract Authentication</title>
+        <meta http-equiv="refresh" content="1;url={login_url}">
+        <style>
+            body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
+            .container {{ max-width: 600px; margin: 0 auto; }}
+            .button {{ 
+                display: inline-block; 
+                background-color: #007bff; 
+                color: white; 
+                padding: 10px 20px; 
+                text-decoration: none; 
+                border-radius: 4px; 
+                margin-top: 20px; 
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>TextExtract Authentication</h1>
+            <p>Redirecting to login page...</p>
+            <p>If you are not automatically redirected, please click the button below:</p>
+            <a href="{login_url}" class="button">Go to Login Page</a>
+        </div>
+    </body>
+    </html>
+    """
+    
+    # Return HTML response with redirect header
+    response = Response(html_response, 200, {'Content-Type': 'text/html'})
+    response.headers['Location'] = login_url
+    return response
+
+@auth_routes.route('/complete-web-login', methods=['POST'])
+def complete_web_login():
+    """Complete the web login process and redirect back to the desktop app"""
+    try:
+        data = request.json
+        
+        # Get parameters
+        email = data.get('email')
+        password = data.get('password')
+        redirect_uri = data.get('redirect_uri')
+        device_id = data.get('device_id')
+        state = data.get('state')
+        
+        logger.info(f"Web login completion request. Email: {email}, Redirect URI: {redirect_uri}, Device ID: {device_id}")
+        
+        if not all([email, password, redirect_uri]):
+            logger.error("Missing required parameters in complete-web-login request")
+            return jsonify({"error": "Missing required parameters"}), 400
+        
+        # Authenticate the user
+        user = User.get_by_email(email)
+        if not user:
+            logger.warning(f"Invalid email in login attempt: {email}")
+            return jsonify({"error": "Invalid email or password"}), 401
+        
+        # Verify password
+        if not User.verify_password(user, password):
+            logger.warning(f"Invalid password for user: {email}")
+            return jsonify({"error": "Invalid email or password"}), 401
+        
+        # Check if user is active
+        if user.get('status') != 'active':
+            logger.warning(f"Inactive account login attempt: {email}")
+            return jsonify({"error": "Account is inactive"}), 403
+        
+        # Generate token
+        token = generate_token(user['id'], user['email'])
+        
+        # Register device if identifier provided
+        if device_id:
+            device_info = extract_device_info(request)
+            Device.register(user['id'], device_id, device_info)
+            logger.info(f"Registered device {device_id} for user {email}")
+        
+        # Construct the callback URL
+        callback_url = f"{redirect_uri}?token={token}&user_id={user['id']}&email={user['email']}&state={state}"
+        
+        # Log the callback URL (but mask the token)
+        logger.info(f"Created callback URL for {email} to {redirect_uri} (token masked)")
+        
+        # Return success with callback URL
+        return jsonify({
+            "success": True,
+            "callback_url": callback_url
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error in complete_web_login route: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({"error": "An error occurred during login"}), 500 

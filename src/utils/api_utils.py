@@ -8,28 +8,21 @@ import src.auth as auth
 logger = logging.getLogger(__name__)
 
 def handle_auth_error(parent_window=None):
-    """Shows login dialog when authentication fails and returns True if user logged in successfully"""
+    """Shows login modal when authentication fails and returns True if user logged in successfully"""
     # Import here to avoid circular imports
-    from src.ui.dialogs.auth_dialog import AuthDialog, _active_auth_dialogs
-    
-    # Check if there's already an active auth dialog
-    if _active_auth_dialogs:
-        # Wait for the existing dialog to complete
-        logger.info("Auth dialog already active, waiting for it to complete")
-        # Return False to indicate we should retry later
-        return False
+    from src.ui.dialogs.auth_modal import create_auth_modal
     
     # Create a separate window for the login dialog if parent is None
     if parent_window is None:
         temp_window = tk.Tk()
         temp_window.withdraw()  # Hide the window
-        login_dialog = AuthDialog(temp_window, "Session Expired")
-        result = login_dialog.show()
+        login_modal = create_auth_modal(temp_window, "Session Expired")
+        result = login_modal.show() if login_modal else False
         temp_window.destroy()
         return result
     else:
-        login_dialog = AuthDialog(parent_window, "Session Expired")
-        return login_dialog.show()
+        login_modal = create_auth_modal(parent_window, "Session Expired")
+        return login_modal.show() if login_modal else False
 
 def authenticated_request(func):
     """
@@ -61,7 +54,7 @@ def authenticated_request(func):
                         retries += 1
                     else:
                         # Token refresh failed, try to re-authenticate
-                        logger.info("Token refresh failed, showing login dialog")
+                        logger.info("Token refresh failed, showing login modal")
                         auth_success = handle_auth_error(parent_window)
                         
                         if auth_success:

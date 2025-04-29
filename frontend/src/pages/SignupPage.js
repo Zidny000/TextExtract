@@ -9,7 +9,7 @@ import {
   Link,
   Alert,
 } from '@mui/material';
-import { useAuth } from '../utils/AuthContext';
+import { useAuth } from '../context/AuthContext';
 
 const SignupPage = () => {
   const [email, setEmail] = useState('');

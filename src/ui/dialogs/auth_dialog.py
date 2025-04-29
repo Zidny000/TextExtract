@@ -47,6 +47,18 @@ class AuthDialog(BaseDialog):
             topmost=True,
             centered=True
         )
+        
+        # Create the dialog window
+        self._create_dialog()
+        
+        # Create the UI
+        self._create_ui()
+        
+        # Set up close handler
+        self.dialog.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+        # Show login form by default
+        self.show_login()
     
     def _create_ui(self):
         """Create the dialog UI"""
@@ -84,14 +96,8 @@ class AuthDialog(BaseDialog):
                                foreground="red", wraplength=350)
         status_label.pack(pady=10)
         
-        # Show login form by default
-        self.show_login()
-        
         # Set dialog to close on Escape key
         self.dialog.bind("<Escape>", lambda event: self.on_close())
-        
-        # Set a cleanup handler when the dialog is closed
-        self.dialog.protocol("WM_DELETE_WINDOW", self.on_close)
     
     def on_close(self):
         """Handle dialog close"""

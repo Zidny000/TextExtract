@@ -46,6 +46,7 @@ class AppState:
         self.command_queue = queue.Queue()
         self.register_app_in_registry()
         self.user_profile = None
+        self.refreshing_token = False
         
     def register_app_in_registry(self):
         """Register the application in the Windows Registry for proper installation detection"""
@@ -104,49 +105,88 @@ def ensure_single_instance():
 
 def show_login_dialog(parent_window):
     """Show a login dialog and return True if login is successful"""
-    from src.ui.dialogs.auth_dialog import AuthDialog
-    print("Creating separate login window...")
+    from src.ui.dialogs.auth_modal import create_auth_modal
+    print("Creating web-based authentication modal...")
     
-    # Create a temporary window specifically for hosting the login dialog
-    login_window = tk.Toplevel(parent_window)
-    login_window.title("Authentication")
-    login_window.geometry("300x200")
-    login_window.update_idletasks()
-    
-    # Center the window
-    width = login_window.winfo_width()
-    height = login_window.winfo_height()
-    x = (login_window.winfo_screenwidth() // 2) - (width // 2)
-    y = (login_window.winfo_screenheight() // 2) - (height // 2)
-    login_window.geometry(f'{width}x{height}+{x}+{y}')
-    
-    # Make it visible but keep it minimal
-    login_window.attributes('-alpha', 1.0)
-    login_window.attributes('-topmost', True)
-    login_window.update()
-    
-    label = tk.Label(login_window, text="Initializing login...")
-    label.pack(pady=20)
-    
-    def start_login():
-        # Remove the label
-        label.pack_forget()
+    try:
+        # Make sure parent window exists and is valid
+        if parent_window is None or not parent_window.winfo_exists():
+            print("Invalid parent window provided to show_login_dialog")
+            return False
+            
+        # Ensure the parent is visible while creating the dialog
+        was_withdrawn = parent_window.state() == 'withdrawn'
+        if was_withdrawn:
+            parent_window.deiconify()
+            parent_window.update()
+            
+        # Create a temporary window specifically for hosting the login dialog
+        login_window = tk.Toplevel(parent_window)
+        login_window.title("Authentication")
+        login_window.geometry("350x200")
+        login_window.protocol("WM_DELETE_WINDOW", lambda: None)  # Prevent user from closing this window
+        login_window.attributes('-topmost', True)
         
-        # Create a progress indicator
-        progress_label = tk.Label(login_window, text="Loading authentication dialog...")
-        progress_label.pack(pady=20)
+        # Center the window
+        login_window.update_idletasks()
+        width = login_window.winfo_width()
+        height = login_window.winfo_height()
+        x = (login_window.winfo_screenwidth() // 2) - (width // 2)
+        y = (login_window.winfo_screenheight() // 2) - (height // 2)
+        login_window.geometry(f'{width}x{height}+{x}+{y}')
+        
+        label = tk.Label(login_window, text="Initializing login...", font=("Arial", 12))
+        label.pack(pady=20)
+        
+        # Force window to be shown
         login_window.update()
         
-        # Create and show auth dialog using our visible window as parent
-        auth_dialog = AuthDialog(login_window, "Welcome to TextExtract")
-        result = auth_dialog.show()
+        # Define the authentication process
+        auth_result = [False]  # Use a list to allow modification from inner function
         
-        # Close the temporary window
-        login_window.destroy()
-        return result
-    
-    # Start login after a short delay to ensure window is visible
-    return login_window.after(500, start_login)
+        def start_login():
+            try:
+                # Update label
+                label.config(text="Preparing authentication...")
+                login_window.update()
+                
+                # Create and show auth modal using our visible window as parent
+                auth_modal = create_auth_modal(login_window, "Welcome to TextExtract")
+                if auth_modal:
+                    result = auth_modal.show()
+                    auth_result[0] = result
+                else:
+                    print("Failed to create auth modal")
+                    
+                # Close the temporary window and restore parent state
+                login_window.destroy()
+                if was_withdrawn:
+                    parent_window.withdraw()
+                    
+                return auth_result[0]
+            except Exception as e:
+                print(f"Error in authentication process: {e}")
+                print(traceback.format_exc())
+                try:
+                    login_window.destroy()
+                except:
+                    pass
+                if was_withdrawn:
+                    parent_window.withdraw()
+                return False
+        
+        # Start login after a short delay to ensure window is visible
+        login_window.after(500, start_login)
+        
+        # Wait for the login window to close
+        parent_window.wait_window(login_window)
+        
+        return auth_result[0]
+        
+    except Exception as e:
+        print(f"Error showing login dialog: {e}")
+        print(traceback.format_exc())
+        return False
 
 def main():
     print("\n\n==== STARTING APPLICATION ====")
@@ -217,24 +257,58 @@ def main():
                 # Destroy splash screen
                 splash.destroy()
             else:
-                print("User not authenticated, showing login dialog...")
+                print("User not authenticated, showing login modal...")
                 # Update splash screen
                 tk.Label(splash, text="Please login to continue...").pack(pady=10)
                 splash.update()
                 
-                # Close splash after a delay and show login dialog
+                # Close splash after a delay and show login modal
                 def transition_to_login():
-                    splash.destroy()
-                    # Show the login dialog using our dedicated function
-                    login_result = show_login_dialog(root)
-                    if login_result:
-                        print("Login completed successfully")
-                        auth_success = True
-                    else:
-                        print("Authentication required to use the application. User canceled login.")
-                        # Instead of immediately exiting, we'll continue with limited functionality
-                        messagebox.showwarning("Limited Functionality", 
-                                             "You're continuing without authentication. Some features will be unavailable.")
+                    try:
+                        print("Transitioning to login screen...")
+                        # Destroy splash carefully
+                        try:
+                            if splash and splash.winfo_exists():
+                                splash.destroy()
+                        except Exception as splash_e:
+                            print(f"Error destroying splash: {splash_e}")
+                        
+                        # Show the login modal using our dedicated function
+                        print("Showing login dialog...")
+                        # Make sure root is visible temporarily to ensure proper dialog parenting
+                        root_was_withdrawn = root.state() == 'withdrawn'
+                        if root_was_withdrawn:
+                            root.deiconify()
+                            root.update()
+                        
+                        login_result = show_login_dialog(root)
+                        
+                        # Restore root state if needed
+                        if root_was_withdrawn:
+                            root.withdraw()
+                        
+                        if login_result:
+                            print("Login completed successfully")
+                            auth_success = True
+                            # Update UI to reflect successful login
+                            root.after(0, lambda: update_after_login_success())
+                        else:
+                            print("Authentication required to use the application. User canceled login.")
+                            # Instead of immediately exiting, we'll continue with limited functionality
+                            messagebox.showwarning("Limited Functionality", 
+                                                 "You're continuing without authentication. Some features will be unavailable.")
+                    except Exception as e:
+                        print(f"Error in transition_to_login: {e}")
+                        print(traceback.format_exc())
+                        messagebox.showerror("Error", f"Failed to show login screen: {str(e)}")
+                
+                # Function to update UI after successful login
+                def update_after_login_success():
+                    try:
+                        # Fetch user profile after successful login
+                        Thread(target=fetch_profile_thread, daemon=True).start()
+                    except Exception as e:
+                        print(f"Error updating after login: {e}")
                 
                 # Schedule the transition
                 root.after(1500, transition_to_login)
@@ -321,7 +395,7 @@ def main():
 
             # Check if user is authenticated
             if auth_required and not auth.is_authenticated():
-                print("Not authenticated, showing login dialog")
+                print("Not authenticated, showing login modal")
                 
                 # Ensure the root window is temporarily visible to properly show dialogs
                 root_was_withdrawn = root.state() == 'withdrawn'
@@ -330,13 +404,13 @@ def main():
                     root.deiconify()
                     root.update_idletasks()
                     
-                # Show login dialog
+                # Show login modal
                 try:
-                    from src.ui.dialogs.auth_dialog import create_auth_dialog
-                    login_dialog = create_auth_dialog(root, "Authentication Required")
+                    from src.ui.dialogs.auth_modal import create_auth_modal
+                    login_modal = create_auth_modal(root, "Authentication Required")
                     
-                    if login_dialog:
-                        is_authenticated = login_dialog.show()
+                    if login_modal:
+                        is_authenticated = login_modal.show()
                         if not is_authenticated:
                             # User canceled login
                             print("User canceled login")
@@ -345,15 +419,15 @@ def main():
                                 root.withdraw()
                             return
                     else:
-                        print("Could not create login dialog, possibly one is already active")
+                        print("Could not create login modal")
                         # Restore root window state
                         if root_was_withdrawn:
                             root.withdraw()
                         return
                 except Exception as e:
-                    print(f"Error showing login dialog: {str(e)}")
+                    print(f"Error showing login modal: {str(e)}")
                     print(traceback.format_exc())
-                    messagebox.showerror("Error", f"Could not show login dialog: {str(e)}")
+                    messagebox.showerror("Error", f"Could not show login modal: {str(e)}")
                     # Restore root window state
                     if root_was_withdrawn:
                         root.withdraw()
@@ -408,7 +482,7 @@ def main():
             def show_profile_ui():
                 # Check if authenticated first
                 if not auth.is_authenticated():
-                    print("Not authenticated, showing login dialog for profile view")
+                    print("Not authenticated, showing login modal for profile view")
                     
                     # Ensure the root window is temporarily visible to properly show dialogs
                     root_was_withdrawn = root.state() == 'withdrawn'
@@ -417,13 +491,13 @@ def main():
                         root.deiconify()
                         root.update_idletasks()
                         
-                    # Show login dialog
+                    # Show login modal
                     try:
-                        from src.ui.dialogs.auth_dialog import create_auth_dialog
-                        login_dialog = create_auth_dialog(root, "Authentication Required")
+                        from src.ui.dialogs.auth_modal import create_auth_modal
+                        login_modal = create_auth_modal(root, "Authentication Required")
                         
-                        if login_dialog:
-                            is_authenticated = login_dialog.show()
+                        if login_modal:
+                            is_authenticated = login_modal.show()
                             if not is_authenticated:
                                 # User canceled login
                                 print("User canceled login")
@@ -432,15 +506,15 @@ def main():
                                     root.withdraw()
                                 return
                         else:
-                            print("Could not create login dialog, possibly one is already active")
+                            print("Could not create login modal")
                             # Restore root window state
                             if root_was_withdrawn:
                                 root.withdraw()
                             return
                     except Exception as e:
-                        print(f"Error showing login dialog: {str(e)}")
+                        print(f"Error showing login modal: {str(e)}")
                         print(traceback.format_exc())
-                        messagebox.showerror("Error", f"Could not show login dialog: {str(e)}")
+                        messagebox.showerror("Error", f"Could not show login modal: {str(e)}")
                         # Restore root window state
                         if root_was_withdrawn:
                             root.withdraw()
@@ -589,46 +663,18 @@ def main():
                 root.after(0, show_profile_ui)
         
         def logout_user():
-            """Logout the current user"""
-            print("Processing logout request...")
-            
-            # Use a separate function for UI operations to ensure thread safety
-            def logout_ui():
-                # Confirm logout
-                if messagebox.askyesno("Confirm Logout", "Are you sure you want to logout?"):
-                    # Perform logout in a separate thread
-                    def logout_thread():
-                        try:
-                            success, message = auth.logout()
-                            
-                            # Schedule UI update in main thread
-                            def update_ui():
-                                if success:
-                                    print("Logout successful, user needs to login again")
-                                    # Don't immediately show login dialog - wait for user to interact
-                                    # Instead, just update the app state to reflect being logged out
-                                    app_state.user_profile = None
-                                    # Show a brief message and continue with app
-                                    messagebox.showinfo("Logged Out", "You have been logged out successfully")
-                        
-                            root.after(0, update_ui)
-                        except Exception as e:
-                            print(f"Error during logout: {e}")
-                            print(traceback.format_exc())
-                            
-                            def show_error():
-                                messagebox.showerror("Error", f"An error occurred during logout: {str(e)}")
-                            
-                            root.after(0, show_error)
-                    
-                    # Start logout process in background thread
-                    Thread(target=logout_thread, daemon=True).start()
-            
-            # Ensure UI operations run in the main thread
-            if threading.current_thread() is threading.main_thread():
-                logout_ui()
-            else:
-                root.after(0, logout_ui)
+            """Safely logout the user"""
+            try:
+                success, message = auth.logout()
+                if success:
+                    app_state.user_profile = None
+                    app_state.is_authenticated = False
+                    messagebox.showinfo("Logout", "You have been logged out successfully")
+                else:
+                    messagebox.showerror("Error", f"Failed to logout: {message}")
+            except Exception as e:
+                logger.error(f"Error during logout: {e}")
+                messagebox.showerror("Error", f"An error occurred during logout: {str(e)}")
 
         def exit_application():
             print("Exiting application...")
@@ -712,7 +758,7 @@ def main():
                 # Create capture callback that checks authentication first
                 def authenticated_capture():
                     if auth_required and not auth.is_authenticated():
-                        print("Not authenticated, showing login dialog")
+                        print("Not authenticated, showing login modal")
                         
                         # Ensure the root window is temporarily visible to properly show dialogs
                         root_was_withdrawn = root.state() == 'withdrawn'
@@ -721,13 +767,13 @@ def main():
                             root.deiconify()
                             root.update_idletasks()
                             
-                        # Show login dialog
+                        # Show login modal
                         try:
-                            from src.ui.dialogs.auth_dialog import create_auth_dialog
-                            login_dialog = create_auth_dialog(root, "Authentication Required")
+                            from src.ui.dialogs.auth_modal import create_auth_modal
+                            login_modal = create_auth_modal(root, "Authentication Required")
                             
-                            if login_dialog:
-                                is_authenticated = login_dialog.show()
+                            if login_modal:
+                                is_authenticated = login_modal.show()
                                 if not is_authenticated:
                                     # User canceled login
                                     print("User canceled login")
@@ -736,15 +782,15 @@ def main():
                                         root.withdraw()
                                     return
                             else:
-                                print("Could not create login dialog, possibly one is already active")
+                                print("Could not create login modal")
                                 # Restore root window state
                                 if root_was_withdrawn:
                                     root.withdraw()
                                 return
                         except Exception as e:
-                            print(f"Error showing login dialog: {str(e)}")
+                            print(f"Error showing login modal: {str(e)}")
                             print(traceback.format_exc())
-                            messagebox.showerror("Error", f"Could not show login dialog: {str(e)}")
+                            messagebox.showerror("Error", f"Could not show login modal: {str(e)}")
                             # Restore root window state
                             if root_was_withdrawn:
                                 root.withdraw()
@@ -794,16 +840,7 @@ def main():
             
             # Create menu items for the tray icon
             menu = (
-                # Add a default menu item that will be triggered on left-click
-                pystray.MenuItem('Show Control Panel', lambda: safe_toggle_floating_icon(), default=True),
-                pystray.MenuItem('Capture Text (Ctrl+Alt+C)', lambda: safe_capture()),
-                pystray.MenuItem('Select Monitor (Ctrl+Alt+M)', lambda: safe_change_monitor()),
-                pystray.MenuItem('Show Control Panel (Ctrl+Alt+V)', lambda: safe_toggle_floating_icon()),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem('My Profile', lambda: safe_show_profile()),
-                pystray.MenuItem('Logout', lambda: safe_logout()),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem(f'About {APP_NAME} v{__version__}', lambda: show_about_dialog()),
+                pystray.MenuItem('Select Monitor', lambda: safe_change_monitor()),
                 pystray.MenuItem('Exit', lambda: safe_exit())
             )
             
@@ -877,13 +914,23 @@ def main():
             if auth.is_authenticated():
                 # Check profile every few minutes to catch token expiration
                 try:
-                    # Only attempt to refresh if we haven't already shown an auth dialog
-                    from src.ui.dialogs.auth_dialog import _active_auth_dialogs
-                    if not _active_auth_dialogs:
+                    # Skip if already refreshing or if auth dialog is open
+                    try:
+                        # Don't refresh if we're already showing an auth dialog
+                        if app_state.refreshing_token:
+                            return
+                        app_state.refreshing_token = True
+                        
+                        # Start token refresh
                         threading.Thread(
-                            target=lambda: auth.get_user_profile(root),
-                            daemon=True
+                            target=lambda: (
+                                auth.refresh_token(),
+                                setattr(app_state, 'refreshing_token', False)
+                            )
                         ).start()
+                    except Exception as e:
+                        print(f"Error refreshing token: {e}")
+                        app_state.refreshing_token = False
                 except Exception as e:
                     print(f"Error checking auth status: {e}")
                 

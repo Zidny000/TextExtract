@@ -11,7 +11,7 @@ import {
   Alert,
   LinearProgress,
 } from '@mui/material';
-import { useAuth } from '../utils/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 
 const ProfilePage = () => {

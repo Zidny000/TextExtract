@@ -1,7 +1,7 @@
 import React from 'react';
 import { Container, Typography, Box, Button, Grid, Paper } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
-import { useAuth } from '../utils/AuthContext';
+import { useAuth } from '../context/AuthContext';
 
 const LandingPage = () => {
   const { user } = useAuth();
