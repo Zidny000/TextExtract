@@ -20,6 +20,8 @@ import tkinter.messagebox as messagebox
 from threading import Thread
 import traceback  # Add traceback for better error reporting
 import auth  # Import our auth module
+import logging
+logger = logging.getLogger(__name__)
 
 # Add the parent directory to sys.path if running as a script
 if __name__ == "__main__" and not getattr(sys, 'frozen', False):
@@ -120,73 +122,51 @@ def show_login_dialog(parent_window):
             parent_window.deiconify()
             parent_window.update()
             
-        # Create a temporary window specifically for hosting the login dialog
-        login_window = tk.Toplevel(parent_window)
-        login_window.title("Authentication")
-        login_window.geometry("350x200")
-        login_window.protocol("WM_DELETE_WINDOW", lambda: None)  # Prevent user from closing this window
-        login_window.attributes('-topmost', True)
+        # Create the auth modal directly using the parent window
+        auth_modal = create_auth_modal(parent_window, "Welcome to TextExtract")
         
-        # Center the window
-        login_window.update_idletasks()
-        width = login_window.winfo_width()
-        height = login_window.winfo_height()
-        x = (login_window.winfo_screenwidth() // 2) - (width // 2)
-        y = (login_window.winfo_screenheight() // 2) - (height // 2)
-        login_window.geometry(f'{width}x{height}+{x}+{y}')
-        
-        label = tk.Label(login_window, text="Initializing login...", font=("Arial", 12))
-        label.pack(pady=20)
-        
-        # Force window to be shown
-        login_window.update()
-        
-        # Define the authentication process
-        auth_result = [False]  # Use a list to allow modification from inner function
-        
-        def start_login():
-            try:
-                # Update label
-                label.config(text="Preparing authentication...")
-                login_window.update()
+        # Show the modal
+        if auth_modal:
+            result = auth_modal.show()
+            
+            # Restore parent state if needed
+            if was_withdrawn:
+                parent_window.withdraw()
                 
-                # Create and show auth modal using our visible window as parent
-                auth_modal = create_auth_modal(login_window, "Welcome to TextExtract")
-                if auth_modal:
-                    result = auth_modal.show()
-                    auth_result[0] = result
-                else:
-                    print("Failed to create auth modal")
-                    
-                # Close the temporary window and restore parent state
-                login_window.destroy()
-                if was_withdrawn:
-                    parent_window.withdraw()
-                    
-                return auth_result[0]
-            except Exception as e:
-                print(f"Error in authentication process: {e}")
-                print(traceback.format_exc())
-                try:
-                    login_window.destroy()
-                except:
-                    pass
-                if was_withdrawn:
-                    parent_window.withdraw()
-                return False
-        
-        # Start login after a short delay to ensure window is visible
-        login_window.after(500, start_login)
-        
-        # Wait for the login window to close
-        parent_window.wait_window(login_window)
-        
-        return auth_result[0]
+            return result
+        else:
+            print("Failed to create auth modal")
+            
+            # Restore parent state if needed
+            if was_withdrawn:
+                parent_window.withdraw()
+                
+            return False
         
     except Exception as e:
         print(f"Error showing login dialog: {e}")
         print(traceback.format_exc())
+        
+        # Restore parent state if needed
+        if was_withdrawn:
+            parent_window.withdraw()
+            
         return False
+
+# Function to fetch user profile that can be used anywhere
+def fetch_profile_thread(app_state, root=None):
+    print("Fetching user profile in background...")
+    try:
+        profile, message = auth.get_user_profile(root)
+        if profile:
+            app_state.user_profile = profile
+            print(f"Logged in as: {profile['user'].get('email', 'Unknown')}")
+            print(f"Remaining requests today: {profile['usage'].get('remaining_requests', 'Unknown')}")
+        else:
+            print(f"Could not fetch profile: {message}")
+    except Exception as e:
+        print(f"Error fetching profile: {str(e)}")
+        print(traceback.format_exc())
 
 def main():
     print("\n\n==== STARTING APPLICATION ====")
@@ -306,7 +286,7 @@ def main():
                 def update_after_login_success():
                     try:
                         # Fetch user profile after successful login
-                        Thread(target=fetch_profile_thread, daemon=True).start()
+                        Thread(target=lambda: fetch_profile_thread(app_state, root), daemon=True).start()
                     except Exception as e:
                         print(f"Error updating after login: {e}")
                 
@@ -338,21 +318,7 @@ def main():
         
         # Fetch user profile in the background only if authenticated
         if auth_success:
-            def fetch_profile_thread():
-                print("Fetching user profile in background...")
-                try:
-                    profile, message = auth.get_user_profile(root)
-                    if profile:
-                        app_state.user_profile = profile
-                        print(f"Logged in as: {profile['user'].get('email', 'Unknown')}")
-                        print(f"Remaining requests today: {profile['usage'].get('remaining_requests', 'Unknown')}")
-                    else:
-                        print(f"Could not fetch profile: {message}")
-                except Exception as e:
-                    print(f"Error fetching profile: {str(e)}")
-                    print(traceback.format_exc())
-            
-            Thread(target=fetch_profile_thread, daemon=True).start()
+            Thread(target=lambda: fetch_profile_thread(app_state, root), daemon=True).start()
         
         print(f"{APP_NAME} v{__version__} started")
         print("- Ctrl+Alt+C: Capture from last selected monitor")
@@ -404,38 +370,17 @@ def main():
                     root.deiconify()
                     root.update_idletasks()
                     
-                # Show login modal
-                try:
-                    from src.ui.dialogs.auth_modal import create_auth_modal
-                    login_modal = create_auth_modal(root, "Authentication Required")
-                    
-                    if login_modal:
-                        is_authenticated = login_modal.show()
-                        if not is_authenticated:
-                            # User canceled login
-                            print("User canceled login")
-                            # Restore root window state
-                            if root_was_withdrawn:
-                                root.withdraw()
-                            return
-                    else:
-                        print("Could not create login modal")
-                        # Restore root window state
-                        if root_was_withdrawn:
-                            root.withdraw()
-                        return
-                except Exception as e:
-                    print(f"Error showing login modal: {str(e)}")
-                    print(traceback.format_exc())
-                    messagebox.showerror("Error", f"Could not show login modal: {str(e)}")
-                    # Restore root window state
-                    if root_was_withdrawn:
-                        root.withdraw()
-                    return
+                # Show login dialog using our dedicated function
+                print("Showing login dialog...")
+                login_result = show_login_dialog(root)
                 
-                # Restore root window state
+                # Restore root state if needed
                 if root_was_withdrawn:
                     root.withdraw()
+                
+                if not login_result:
+                    print("User canceled login")
+                    return
 
             # Temporarily make root visible to help with focus issues
             root.update_idletasks()
@@ -491,38 +436,17 @@ def main():
                         root.deiconify()
                         root.update_idletasks()
                         
-                    # Show login modal
-                    try:
-                        from src.ui.dialogs.auth_modal import create_auth_modal
-                        login_modal = create_auth_modal(root, "Authentication Required")
-                        
-                        if login_modal:
-                            is_authenticated = login_modal.show()
-                            if not is_authenticated:
-                                # User canceled login
-                                print("User canceled login")
-                                # Restore root window state
-                                if root_was_withdrawn:
-                                    root.withdraw()
-                                return
-                        else:
-                            print("Could not create login modal")
-                            # Restore root window state
-                            if root_was_withdrawn:
-                                root.withdraw()
-                            return
-                    except Exception as e:
-                        print(f"Error showing login modal: {str(e)}")
-                        print(traceback.format_exc())
-                        messagebox.showerror("Error", f"Could not show login modal: {str(e)}")
-                        # Restore root window state
-                        if root_was_withdrawn:
-                            root.withdraw()
-                        return
+                    # Show login dialog using our dedicated function
+                    print("Showing login dialog...")
+                    login_result = show_login_dialog(root)
                     
-                    # Restore root window state if we need to continue to profile
+                    # Restore root state if needed
                     if root_was_withdrawn:
                         root.withdraw()
+                    
+                    if not login_result:
+                        print("User canceled login")
+                        return
                 
                 # Temporarily disable floating icon if visible
                 if app_state.floating_icon and app_state.floating_icon.is_visible:
@@ -553,7 +477,7 @@ def main():
                 loading_label.pack(pady=30)
                 
                 # Define a function to fetch profile data in a separate thread
-                def fetch_profile_thread():
+                def profile_fetcher_for_ui():
                     try:
                         profile, message = auth.get_user_profile(root)
                         
@@ -654,7 +578,7 @@ def main():
                         root.after(0, show_error)
                 
                 # Start profile fetching in background thread
-                Thread(target=fetch_profile_thread, daemon=True).start()
+                Thread(target=profile_fetcher_for_ui, daemon=True).start()
             
             # Ensure UI operations run in the main thread
             if threading.current_thread() is threading.main_thread():
@@ -767,38 +691,17 @@ def main():
                             root.deiconify()
                             root.update_idletasks()
                             
-                        # Show login modal
-                        try:
-                            from src.ui.dialogs.auth_modal import create_auth_modal
-                            login_modal = create_auth_modal(root, "Authentication Required")
-                            
-                            if login_modal:
-                                is_authenticated = login_modal.show()
-                                if not is_authenticated:
-                                    # User canceled login
-                                    print("User canceled login")
-                                    # Restore root window state
-                                    if root_was_withdrawn:
-                                        root.withdraw()
-                                    return
-                            else:
-                                print("Could not create login modal")
-                                # Restore root window state
-                                if root_was_withdrawn:
-                                    root.withdraw()
-                                return
-                        except Exception as e:
-                            print(f"Error showing login modal: {str(e)}")
-                            print(traceback.format_exc())
-                            messagebox.showerror("Error", f"Could not show login modal: {str(e)}")
-                            # Restore root window state
-                            if root_was_withdrawn:
-                                root.withdraw()
-                            return
+                        # Show login dialog using our dedicated function
+                        print("Showing login dialog...")
+                        login_result = show_login_dialog(root)
                         
-                        # Restore root window state
+                        # Restore root state if needed
                         if root_was_withdrawn:
                             root.withdraw()
+                        
+                        if not login_result:
+                            print("User canceled login")
+                            return
                         
                     # Proceed with capture
                     safe_capture()
@@ -840,7 +743,7 @@ def main():
             
             # Create menu items for the tray icon
             menu = (
-                pystray.MenuItem('Select Monitor', lambda: safe_change_monitor()),
+                pystray.MenuItem('Logout', lambda: safe_logout()),
                 pystray.MenuItem('Exit', lambda: safe_exit())
             )
             

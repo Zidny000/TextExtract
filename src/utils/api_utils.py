@@ -46,7 +46,7 @@ def authenticated_request(func):
                 if hasattr(e.response, 'status_code') and e.response.status_code in (401, 403):
                     # Token expired or invalid - try to refresh token
                     logger.info("Authentication error detected, trying to refresh token")
-                    refresh_success, _ = auth.refresh_token()
+                    refresh_success, refresh_message = auth.refresh_token()
                     
                     if refresh_success:
                         # Token refreshed, retry the API call
@@ -54,7 +54,7 @@ def authenticated_request(func):
                         retries += 1
                     else:
                         # Token refresh failed, try to re-authenticate
-                        logger.info("Token refresh failed, showing login modal")
+                        logger.info(f"Token refresh failed: {refresh_message}, showing login modal")
                         auth_success = handle_auth_error(parent_window)
                         
                         if auth_success:

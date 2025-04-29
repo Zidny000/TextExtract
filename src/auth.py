@@ -16,6 +16,7 @@ import socketserver
 import urllib.parse
 from threading import Thread
 import time
+import re
 
 # Set up basic logging
 logging.basicConfig(level=logging.INFO, 
@@ -36,6 +37,7 @@ AUTH_REDIRECT_URL = f"http://localhost:{AUTH_CALLBACK_PORT}/callback"
 SERVICE_NAME = "TextExtract"
 ACCOUNT_NAME = "textextract_user"
 TOKEN_KEY = "auth_token"
+REFRESH_TOKEN_KEY = "refresh_token"
 USER_ID_KEY = "user_id"
 EMAIL_KEY = "email"
 
@@ -94,7 +96,7 @@ def get_device_id():
         # Fallback to a temporary device ID
         return str(uuid.uuid4())
 
-def save_auth_data(token, user_id, email):
+def save_auth_data(token, user_id, email, refresh_token=None):
     """Save authentication data securely using keyring or fallback storage"""
     print(f"Saving auth data for email: {email}")
     try:
@@ -102,10 +104,14 @@ def save_auth_data(token, user_id, email):
             keyring.set_password(SERVICE_NAME, TOKEN_KEY, token)
             keyring.set_password(SERVICE_NAME, USER_ID_KEY, user_id)
             keyring.set_password(SERVICE_NAME, EMAIL_KEY, email)
+            if refresh_token:
+                keyring.set_password(SERVICE_NAME, REFRESH_TOKEN_KEY, refresh_token)
         else:
             _fallback_storage[TOKEN_KEY] = token
             _fallback_storage[USER_ID_KEY] = user_id
             _fallback_storage[EMAIL_KEY] = email
+            if refresh_token:
+                _fallback_storage[REFRESH_TOKEN_KEY] = refresh_token
         return True
     except Exception as e:
         print(f"Error saving auth data: {e}")
@@ -121,6 +127,17 @@ def get_auth_token():
             return _fallback_storage.get(TOKEN_KEY)
     except Exception as e:
         print(f"Error getting auth token: {e}")
+        return None
+
+def get_refresh_token():
+    """Get the refresh token"""
+    try:
+        if _USE_KEYRING:
+            return keyring.get_password(SERVICE_NAME, REFRESH_TOKEN_KEY)
+        else:
+            return _fallback_storage.get(REFRESH_TOKEN_KEY)
+    except Exception as e:
+        print(f"Error getting refresh token: {e}")
         return None
 
 def get_user_email():
@@ -164,15 +181,17 @@ class AuthCallbackHandler(http.server.SimpleHTTPRequestHandler):
             # Parse the path
             parsed_path = urllib.parse.urlparse(self.path)
             
-            # Check if this is the callback route
-            if parsed_path.path == "/callback":
+            # Check if this is the callback route (use startswith to handle variations)
+            if parsed_path.path.startswith("/callback"):
                 # Extract the token from query parameters
                 query = urllib.parse.parse_qs(parsed_path.query)
                 token = query.get("token", [""])[0]
+                refresh_token = query.get("refresh_token", [""])[0]
                 user_id = query.get("user_id", [""])[0]
                 email = query.get("email", [""])[0]
                 
-                print(f"Received token: {token[:10]}... (truncated)")
+                print(f"Received token: {token[:10] if token else 'None'}... (truncated)")
+                print(f"Received refresh token: {refresh_token[:10] if refresh_token else 'None'}... (truncated)")
                 print(f"Received user_id: {user_id}")
                 print(f"Received email: {email}")
                 
@@ -180,7 +199,7 @@ class AuthCallbackHandler(http.server.SimpleHTTPRequestHandler):
                 if token and user_id and email:
                     # Save the authentication data
                     print("Saving authentication data...")
-                    success = save_auth_data(token, user_id, email)
+                    success = save_auth_data(token, user_id, email, refresh_token)
                     if success:
                         message = "Authentication successful! You can now close this window and return to the app."
                     else:
@@ -243,11 +262,191 @@ class AuthCallbackHandler(http.server.SimpleHTTPRequestHandler):
                 # Call the auth callback if provided
                 if self.auth_callback:
                     print("Calling auth callback function...")
-                    self.auth_callback(success, token, user_id, email)
+                    try:
+                        self.auth_callback(success, token, user_id, email, refresh_token)
+                        print("Auth callback completed successfully")
+                    except Exception as e:
+                        print(f"Error in auth callback: {e}")
+                        print(traceback.format_exc())
                 else:
                     print("No auth callback function provided")
                 
                 return
+            # Handle direct token requests for already logged in users
+            elif parsed_path.path.startswith("/direct_auth"):
+                print("Received direct auth request for already logged in user")
+                query = urllib.parse.parse_qs(parsed_path.query)
+                
+                # Check if this is an auto direct auth (from redirect)
+                auto_mode = "auto" in query and query["auto"][0] == "true"
+                success = False
+                
+                # Try both methods to determine if user is authenticated
+                # 1. Check if we're already authenticated locally
+                if is_authenticated():
+                    print("Already authenticated locally - using existing credentials")
+                    token = get_auth_token()
+                    user_id = get_user_id()
+                    email = get_user_email()
+                    refresh_token = get_refresh_token()
+                    success = True
+                # 2. If auto mode, try to extract tokens from query params
+                elif auto_mode:
+                    # Try to extract from query params if they exist
+                    token = query.get("token", [""])[0]
+                    refresh_token = query.get("refresh_token", [""])[0]
+                    user_id = query.get("user_id", [""])[0]
+                    email = query.get("email", [""])[0]
+                    
+                    if token and user_id and email:
+                        print("Auto direct auth - found token data in query")
+                        success = True
+                    else:
+                        print("Auto direct auth - no token data in query, remaining unauthenticated")
+                # 3. Normal direct auth flow (explicit params)
+                else:
+                    token = query.get("token", [""])[0]
+                    refresh_token = query.get("refresh_token", [""])[0]
+                    user_id = query.get("user_id", [""])[0]
+                    email = query.get("email", [""])[0]
+                
+                    print(f"Direct auth - token present: {bool(token)}")
+                    print(f"Direct auth - user_id present: {bool(user_id)}")
+                
+                # Save auth data if we have it and aren't already authenticated
+                if success and token and user_id and email and not is_authenticated():
+                    print("Saving direct auth data...")
+                    save_result = save_auth_data(token, user_id, email, refresh_token)
+                    print(f"Save result: {save_result}")
+                    success = save_result
+                elif not token or not user_id or not email:
+                    print(f"Missing required data - token: {bool(token)}, user_id: {bool(user_id)}, email: {bool(email)}")
+                
+                # Return a success/failure message with clear HTML
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html')
+                self.end_headers()
+                
+                status = "success" if success else "failure"
+                status_message = "successful!" if status == "success" else "failed"
+                
+                html = f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>TextExtract Authentication</title>
+                    <style>
+                        body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
+                        .container {{ max-width: 600px; margin: 0 auto; }}
+                        .success {{ color: green; font-weight: bold; }}
+                        .failure {{ color: red; font-weight: bold; }}
+                    </style>
+                    <script>
+                        // Report status to console for debugging
+                        console.log("Authentication status: {status}");
+                        
+                        // Signal status to any parent window that might be listening
+                        if (window.opener) {{
+                            try {{
+                                window.opener.postMessage({{ status: "{status}" }}, "*");
+                            }} catch(e) {{
+                                console.error("Error posting message to opener:", e);
+                            }}
+                        }}
+                        
+                        // Auto-close after 3 seconds
+                        setTimeout(function() {{
+                            window.close();
+                        }}, 3000);
+                    </script>
+                </head>
+                <body>
+                    <div class="container">
+                        <h2>TextExtract Authentication</h2>
+                        <p class="{status}">Authentication {status_message}</p>
+                        <p>This window will close automatically in 3 seconds.</p>
+                        <p>Status: AUTH_RESULT={status}</p>
+                    </div>
+                </body>
+                </html>
+                """
+                self.wfile.write(html.encode())
+                
+                # Call the auth callback
+                if self.auth_callback:
+                    print("Calling auth callback for direct auth...")
+                    try:
+                        self.auth_callback(success, token, user_id, email, refresh_token)
+                        print("Direct auth callback completed successfully")
+                    except Exception as e:
+                        print(f"Error in direct auth callback: {e}")
+                        print(traceback.format_exc())
+                else:
+                    print("No auth callback provided for direct auth")
+                
+                return
+            # Basic pages and redirects for already logged-in users
+            elif parsed_path.path == "/" or parsed_path.path.startswith("/profile"):
+                print(f"Received navigation to basic page: {parsed_path.path}")
+                
+                # This usually happens when user is already logged in - redirect to our direct auth handler
+                # First check if we're already authenticated on the desktop app
+                if is_authenticated():
+                    print("Already authenticated in desktop app - handling as direct auth success")
+                    token = get_auth_token()
+                    user_id = get_user_id()
+                    email = get_user_email()
+                    refresh_token = get_refresh_token()
+                    success = True
+                    
+                    # Create success HTML that will auto-close
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html')
+                    self.end_headers()
+                    
+                    html = f"""
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>TextExtract Authentication</title>
+                        <style>
+                            body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
+                            .container {{ max-width: 600px; margin: 0 auto; }}
+                            .success {{ color: green; font-weight: bold; }}
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <h2>TextExtract Authentication</h2>
+                            <p class="success">Successfully authenticated!</p>
+                            <p>This window will close automatically in 3 seconds.</p>
+                        </div>
+                        <script>
+                            console.log("Authentication successful, auto-closing window");
+                            setTimeout(function() {{ window.close(); }}, 3000);
+                        </script>
+                    </body>
+                    </html>
+                    """
+                    self.wfile.write(html.encode())
+                    
+                    # Call the auth callback
+                    if self.auth_callback:
+                        print("Calling auth callback for already authenticated session...")
+                        try:
+                            self.auth_callback(success, token, user_id, email, refresh_token)
+                            print("Auth callback completed successfully for already authenticated session")
+                        except Exception as e:
+                            print(f"Error in already authenticated callback: {e}")
+                            print(traceback.format_exc())
+                    
+                    return
+                else:
+                    # Redirect to direct auth with auto param
+                    self.send_response(302) # Found/Redirect
+                    self.send_header('Location', f"/direct_auth?auto=true")
+                    self.end_headers()
+                    return
             
             # For other routes, return 404
             print(f"Path not recognized: {parsed_path.path}")
@@ -261,7 +460,8 @@ class AuthCallbackHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(500)
             self.send_header('Content-type', 'text/plain')
             self.end_headers()
-            self.wfile.write(f"Server error: {str(e)}".encode())
+            error_message = f"Server error: {str(e)}\n\nTraceback: {traceback.format_exc()}"
+            self.wfile.write(error_message.encode())
 
 def is_port_in_use(port):
     """Check if the given port is already in use"""
@@ -337,27 +537,133 @@ def is_authenticated():
     token = get_auth_token()
     return token is not None and token != ""
 
-def web_authenticate(callback=None):
-    """Start the web-based authentication flow"""
-    print("Starting web-based authentication flow...")
-    auth_result = {"success": False, "message": ""}
-    auth_completed = threading.Event()
+def auth_callback(success, token, user_id, email, refresh_token=None, callback=None, auth_result=None, auth_completed=None):
+    """Handle the callback from the authentication server"""
+    print(f"Auth callback called with success={success}")
+    if token:
+        print(f"Received token: {token[:10]}... (truncated)")
     
-    # Define the callback function that will be called when authentication completes
-    def auth_callback(success, token, user_id, email):
-        print(f"Auth callback called with success={success}")
-        if token:
-            print(f"Received token: {token[:10]}... (truncated)")
+    # Update auth_result if provided
+    if auth_result is not None:
         auth_result["success"] = success
         if success:
             auth_result["message"] = "Authentication successful"
         else:
             auth_result["message"] = "Authentication failed"
+    
+    # If successful, ensure we save the data
+    if success and token and user_id and email:
+        print("Saving authentication data in callback...")
+        save_result = save_auth_data(token, user_id, email, refresh_token)
+        if not save_result:
+            print("Warning: Failed to save auth data in callback")
+            
+        # Additional debug to ensure token is saved properly
+        stored_token = get_auth_token()
+        if stored_token:
+            print(f"Verified token was saved: {stored_token[:10]}... (truncated)")
+        else:
+            print("Warning: Token not found after saving!")
+            
+    # Call the user-provided callback if available and successful
+    if success and callback:
+        try:
+            print("Calling user-provided callback with successful auth")
+            callback()
+        except Exception as e:
+            print(f"Error in user provided callback: {e}")
+            print(traceback.format_exc())
+        
+    # Signal that authentication is complete if threading event provided
+    if auth_completed is not None:
+        auth_completed.set()
+        
+    return success
+
+def web_authenticate(callback=None):
+    """Start the web-based authentication flow"""
+    print("Starting web-based authentication flow...")
+    
+    # First check if the user is already authenticated
+    if is_authenticated():
+        print("User is already authenticated, skipping web auth flow")
+        # Call the callback if provided
+        if callback:
+            try:
+                print("User already authenticated, calling success callback...")
+                callback()
+            except Exception as e:
+                print(f"Error in auth success callback: {e}")
+                print(traceback.format_exc())
+        # Return success immediately
+        return True, "Already authenticated"
+    
+    auth_result = {"success": False, "message": ""}
+    auth_completed = threading.Event()
+    
+    # Function to directly check profile in case the callback method fails
+    def check_profile_auth_status():
+        try:
+            print("Directly checking if user is authenticated on website...")
+            # Try to fetch user profile from the API
+            headers = {
+                "X-Device-ID": get_device_id(),
+                "X-Direct-Check": "true"
+            }
+            response = requests.get(f"{API_BASE_URL}/users/profile/check", 
+                                   headers=headers,
+                                   timeout=5)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("authenticated"):
+                    print("Profile check confirms user is authenticated!")
+                    # Extract token data
+                    token = data.get("token")
+                    user_id = data.get("user_id")
+                    email = data.get("email") 
+                    refresh_token = data.get("refresh_token")
+                    
+                    if token and user_id and email:
+                        print("Saving auth data from profile check...")
+                        save_auth_data(token, user_id, email, refresh_token)
+                        return True
+            return False
+        except Exception as e:
+            print(f"Error in profile check: {e}")
+            return False
+    
+    # Define the callback function that will be called when authentication completes
+    def inner_auth_callback(success, token, user_id, email, refresh_token=None):
+        print(f"Inner auth callback called with success={success}")
+        if token:
+            print(f"Received token: {token[:10]}... (truncated)")
+        auth_result["success"] = success
+        
+        # Save the auth data
+        if success and token and user_id and email:
+            print("Saving auth data in inner callback...")
+            save_auth_data(token, user_id, email, refresh_token)
+            
+        if success:
+            auth_result["message"] = "Authentication successful"
+            # Call user callback
+            if callback:
+                try:
+                    print("Calling user callback from inner callback")
+                    callback()
+                except Exception as e:
+                    print(f"Error in user callback from inner: {e}")
+                    print(traceback.format_exc())
+        else:
+            auth_result["message"] = "Authentication failed"
+            
         auth_completed.set()
     
     # Start the callback server
     print("Starting auth callback server...")
-    server = start_auth_callback_server(auth_callback)
+    server = start_auth_callback_server(lambda success, token, user_id, email, refresh_token=None: 
+        inner_auth_callback(success, token, user_id, email, refresh_token))
     if not server:
         print("Failed to start authentication callback server")
         return False, "Failed to start authentication server. Another instance might be running."
@@ -369,8 +675,11 @@ def web_authenticate(callback=None):
     # Generate a state parameter for security
     state = str(uuid.uuid4())
     
+    # Create a direct auth URL for already logged-in users
+    direct_auth_url = urllib.parse.quote(f"http://localhost:{AUTH_CALLBACK_PORT}/direct_auth")
+    
     # Construct the authentication URL
-    auth_url = f"{API_BASE_URL}/auth/web-login?redirect_uri={urllib.parse.quote(AUTH_REDIRECT_URL)}&device_id={device_id}&state={state}"
+    auth_url = f"{API_BASE_URL}/auth/web-login?redirect_uri={urllib.parse.quote(AUTH_REDIRECT_URL)}&device_id={device_id}&state={state}&auto_login=true&direct_auth_url={direct_auth_url}"
     print(f"Authentication URL: {auth_url}")
     
     # Define a function to open the browser in a separate thread
@@ -445,17 +754,50 @@ def web_authenticate(callback=None):
     timeout = 300  # 5 minutes timeout
     authentication_complete = auth_completed.wait(timeout)
     
+    # If normal authentication flow didn't complete, check if user is already authenticated
     if not authentication_complete:
-        print("Authentication timed out")
-        stop_auth_callback_server(server)
-        return False, "Authentication timed out after 5 minutes"
+        print("Authentication event not received, checking if user is already authenticated...")
+        
+        # Try to check profile directly
+        if check_profile_auth_status():
+            print("Profile check indicates user is authenticated!")
+            auth_result["success"] = True
+            auth_result["message"] = "Authentication detected through profile check"
+            
+            # Call the callback
+            if callback:
+                try:
+                    print("Calling success callback after profile check...")
+                    callback()
+                except Exception as e:
+                    print(f"Error in auth success callback: {e}")
+                    print(traceback.format_exc())
+        else:
+            print("Authentication timed out")
+            auth_result["success"] = False
+            auth_result["message"] = "Authentication timed out after 5 minutes"
     
     # Stop the callback server
     print("Authentication completed, stopping callback server...")
     stop_auth_callback_server(server)
     
-    # Call the user-provided callback if authentication was successful
-    if auth_result["success"] and callback:
+    # Even if event not set but we might have auth data now
+    if not auth_result["success"] and is_authenticated():
+        print("Event not received but user is now authenticated!")
+        auth_result["success"] = True
+        auth_result["message"] = "Authentication succeeded through alternative channel"
+        
+        # Call the user-provided callback if authentication was successful
+        if callback:
+            try:
+                print("Authentication successful (alt check), calling callback...")
+                callback()
+            except Exception as e:
+                print(f"Error in auth success callback: {e}")
+                print(traceback.format_exc())
+    
+    # Call the user-provided callback if authentication was successful and not already called
+    elif auth_result["success"] and callback:
         try:
             print("Authentication successful, calling callback function...")
             callback()
@@ -468,88 +810,135 @@ def web_authenticate(callback=None):
 
 def clear_auth_data():
     """Clear all authentication data"""
-    print("Clearing auth data")
+    print("Clearing all authentication data")
     try:
         if _USE_KEYRING:
-            # Set empty values to effectively clear the data
-            keyring.set_password(SERVICE_NAME, TOKEN_KEY, "")
-            keyring.set_password(SERVICE_NAME, USER_ID_KEY, "")
-            keyring.set_password(SERVICE_NAME, EMAIL_KEY, "")
-            
-            # Try to delete the passwords if supported
             try:
                 keyring.delete_password(SERVICE_NAME, TOKEN_KEY)
+            except Exception:
+                pass
+            try:
+                keyring.delete_password(SERVICE_NAME, REFRESH_TOKEN_KEY)
+            except Exception:
+                pass
+            try:
                 keyring.delete_password(SERVICE_NAME, USER_ID_KEY)
+            except Exception:
+                pass
+            try:
                 keyring.delete_password(SERVICE_NAME, EMAIL_KEY)
-            except (NotImplementedError, AttributeError):
-                # Some keyring backends don't support deletion
+            except Exception:
                 pass
         else:
-            _fallback_storage[TOKEN_KEY] = ""
-            _fallback_storage[USER_ID_KEY] = ""
-            _fallback_storage[EMAIL_KEY] = ""
-            
-            # Remove keys completely
             _fallback_storage.pop(TOKEN_KEY, None)
+            _fallback_storage.pop(REFRESH_TOKEN_KEY, None)
             _fallback_storage.pop(USER_ID_KEY, None)
             _fallback_storage.pop(EMAIL_KEY, None)
-            
         return True
     except Exception as e:
         print(f"Error clearing auth data: {e}")
         print(traceback.format_exc())
         return False
 
+def validate_password_strength(password):
+    """
+    Validates that a password meets security requirements:
+    - At least 8 characters long
+    - Contains at least one uppercase letter
+    - Contains at least one lowercase letter
+    - Contains at least one digit
+    - Contains at least one special character
+    
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long"
+    
+    if not any(c.isupper() for c in password):
+        return False, "Password must contain at least one uppercase letter"
+    
+    if not any(c.islower() for c in password):
+        return False, "Password must contain at least one lowercase letter"
+    
+    if not any(c.isdigit() for c in password):
+        return False, "Password must contain at least one digit"
+    
+    # Check for at least one special character
+    special_chars = "!@#$%^&*()-_=+[]{}|;:'\",.<>/?"
+    if not any(c in special_chars for c in password):
+        return False, "Password must contain at least one special character"
+    
+    return True, "Password meets strength requirements"
+
 def register(email, password, full_name=""):
-    """Register a new user account"""
-    print(f"Attempting to register user: {email}")
+    """Register a new user"""
+    print(f"Registering new user: {email}")
+    
+    # Validate email format
+    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+        return False, "Invalid email format"
+    
+    # Validate password strength
+    is_valid, error_message = validate_password_strength(password)
+    if not is_valid:
+        return False, error_message
+    
     try:
         device_id = get_device_id()
         
+        # Prepare the request
         headers = {
             "Content-Type": "application/json",
-            "X-Device-ID": device_id,
-            "X-App-Version": os.getenv("APP_VERSION", "1.0.0")
+            "X-Device-ID": device_id
         }
         
-        payload = {
+        data = {
             "email": email,
             "password": password,
             "full_name": full_name
         }
         
-        # Set a reasonable timeout
-        print(f"Sending registration request to {API_BASE_URL}/auth/register")
+        # Make the request
         response = requests.post(
-            f"{API_BASE_URL}/auth/register", 
+            f"{API_BASE_URL}/auth/register",
             headers=headers,
-            json=payload,
-            timeout=10  # 10 seconds timeout
+            json=data,
+            timeout=10
         )
         
-        print(f"Registration response status: {response.status_code}")
+        # Check if successful
         if response.status_code == 201:
-            data = response.json()
-            save_auth_data(data["token"], data["user"]["id"], email)
-            return True, "Registration successful"
+            response_data = response.json()
+            
+            # Extract token and user info
+            token = response_data.get("token")
+            refresh_token = response_data.get("refresh_token")
+            user = response_data.get("user", {})
+            user_id = user.get("id")
+            
+            if token and user_id:
+                # Save the authentication data
+                result = save_auth_data(token, user_id, email, refresh_token)
+                if result:
+                    return True, "Registration successful"
+                else:
+                    return False, "Failed to save authentication data"
+            else:
+                return False, "Invalid response data from registration"
         else:
+            # Extract error message if available
+            error_msg = "Unknown error"
             try:
-                error_msg = response.json().get("error", "Unknown error")
+                error_data = response.json()
+                error_msg = error_data.get("error", "Unknown error")
             except:
-                error_msg = f"HTTP {response.status_code}"
+                pass
+                
             return False, f"Registration failed: {error_msg}"
             
-    except requests.exceptions.ConnectionError:
-        print("Connection error during registration")
-        return False, "Connection error: Could not connect to the authentication server"
-    except requests.exceptions.Timeout:
-        print("Timeout during registration")
-        return False, "Connection timed out. Please try again later"
-    except requests.exceptions.RequestException as e:
-        print(f"Request error during registration: {e}")
-        return False, f"Network error: {str(e)}"
     except Exception as e:
-        print(f"General error during registration: {e}")
+        print(f"Error during registration: {e}")
         print(traceback.format_exc())
         return False, f"Registration error: {str(e)}"
 
@@ -606,48 +995,122 @@ def login(email, password):
         return False, f"Login error: {str(e)}"
 
 def logout():
-    """Logout current user"""
-    print("Logging out current user")
-    success = clear_auth_data()
-    if success:
-        return True, "Logout successful"
-    else:
-        return False, "Error during logout"
-
-def refresh_token():
-    """Refresh the authentication token"""
-    if not is_authenticated():
-        return False, "Not authenticated"
-        
+    """Log out the user"""
+    print("Logging out user...")
+    
+    # Get current tokens
+    token = get_auth_token()
+    refresh_token = get_refresh_token()
+    
+    if not token:
+        print("No auth token available, user already logged out")
+        clear_auth_data()
+        return True, "Already logged out"
+    
     try:
-        token = get_auth_token()
-        device_id = get_device_id()
-        
+        # Prepare the request
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {token}",
-            "X-Device-ID": device_id,
-            "X-App-Version": os.getenv("APP_VERSION", "1.0.0")
+            "X-Device-ID": get_device_id()
         }
         
+        data = {}
+        if refresh_token:
+            data["refresh_token"] = refresh_token
+        
+        # Make the request to revoke tokens on server
         response = requests.post(
-            f"{API_BASE_URL}/auth/refresh", 
-            headers=headers
+            f"{API_BASE_URL}/auth/logout",
+            headers=headers,
+            json=data,
+            timeout=10
         )
         
+        # Clear local auth data regardless of server response
+        clear_auth_data()
+        
+        # Check if successful on server side
         if response.status_code == 200:
-            data = response.json()
-            if _USE_KEYRING:
-                keyring.set_password(SERVICE_NAME, TOKEN_KEY, data["token"])
-            else:
-                _fallback_storage[TOKEN_KEY] = data["token"]
-            return True, "Token refreshed"
+            print("Successfully logged out on server")
+            return True, "Successfully logged out"
         else:
-            error_msg = response.json().get("error", "Unknown error")
-            return False, f"Token refresh failed: {error_msg}"
+            print(f"Server logout failed: {response.status_code}, but local data cleared")
+            return True, "Local logout successful, but server logout failed"
             
     except Exception as e:
-        return False, f"Token refresh error: {str(e)}"
+        print(f"Error during logout: {e}")
+        print(traceback.format_exc())
+        
+        # Still clear local auth data even if server request fails
+        clear_auth_data()
+        return True, "Local logout successful, but server communication failed"
+
+def refresh_token():
+    """Refresh the authentication token using the refresh token"""
+    print("Attempting to refresh authentication token...")
+    
+    # Get refresh token
+    refresh_token = get_refresh_token()
+    if not refresh_token:
+        print("No refresh token available")
+        return False, "No refresh token available"
+    
+    try:
+        # Prepare the request
+        headers = {
+            "Content-Type": "application/json",
+            "X-Device-ID": get_device_id()
+        }
+        
+        data = {
+            "refresh_token": refresh_token
+        }
+        
+        # Make the request
+        response = requests.post(
+            f"{API_BASE_URL}/auth/refresh",
+            headers=headers,
+            json=data,
+            timeout=10
+        )
+        
+        # Check if successful
+        if response.status_code == 200:
+            response_data = response.json()
+            
+            # Extract token and user info
+            token = response_data.get("token")
+            user_id = response_data.get("user_id")
+            email = response_data.get("email")
+            
+            if token and user_id and email:
+                # Save only the new access token (keep existing refresh token)
+                result = save_auth_data(token, user_id, email, refresh_token)
+                return result, "Token refreshed successfully"
+            else:
+                print("Invalid response data from refresh token endpoint")
+                return False, "Invalid response data from refresh token endpoint"
+        else:
+            # If refresh token is rejected or expired, clear all auth data
+            if response.status_code == 401:
+                print("Refresh token is invalid or expired. Clearing auth data.")
+                clear_auth_data()
+            
+            error_msg = "Unknown error"
+            try:
+                error_data = response.json()
+                error_msg = error_data.get("error", "Unknown error")
+            except:
+                pass
+                
+            print(f"Failed to refresh token: {response.status_code} - {error_msg}")
+            return False, f"Failed to refresh token: {error_msg}"
+            
+    except Exception as e:
+        print(f"Error refreshing token: {e}")
+        print(traceback.format_exc())
+        return False, f"Error refreshing token: {str(e)}"
 
 def get_user_profile(parent_window=None):
     """Get current user profile"""
@@ -673,7 +1136,7 @@ def get_user_profile(parent_window=None):
         # Handle authentication errors
         if response.status_code in (401, 403):
             # Try to refresh the token first
-            refresh_success, _ = refresh_token()
+            refresh_success, refresh_message = refresh_token()
             if refresh_success:
                 # Retry with new token
                 token = get_auth_token()

@@ -11,7 +11,7 @@ import {
   CircularProgress, 
   Alert 
 } from '@mui/material';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 
@@ -28,6 +28,9 @@ function Login() {
   const location = useLocation();
   const navigate = useNavigate();
   const { login } = useAuth();
+
+  // Get the redirect URL from location state (if navigated from a protected route)
+  const from = location.state?.from || '/profile';
 
   // Check if this is a desktop authentication request by parsing query parameters
   useEffect(() => {
@@ -71,10 +74,12 @@ function Login() {
         // Regular web login
         const authResponse = await login(email, password);
         
-        // Redirect to dashboard after successful login
+        // Redirect to the intended page after successful login
         if (authResponse.success) {
-          navigate('/dashboard');
+          navigate(from, { replace: true });
           return;
+        } else if (authResponse.error) {
+          setError(authResponse.error);
         }
       }
     } catch (err) {
@@ -102,6 +107,13 @@ function Login() {
           {isDesktopAuth && (
             <Alert severity="info" sx={{ mb: 2 }}>
               Please log in to continue using TextExtract desktop application.
+            </Alert>
+          )}
+          
+          {/* Show a message if user was redirected from a protected page */}
+          {location.state?.from && !isDesktopAuth && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              You need to log in to access that page.
             </Alert>
           )}
           
@@ -147,12 +159,12 @@ function Login() {
             </Button>
             <Grid container>
               <Grid item xs>
-                <Link href="/forgot-password" variant="body2">
+                <Link component={RouterLink} to="/forgot-password" variant="body2">
                   Forgot password?
                 </Link>
               </Grid>
               <Grid item>
-                <Link href="/signup" variant="body2">
+                <Link component={RouterLink} to="/signup" variant="body2">
                   Don't have an account? Sign Up
                 </Link>
               </Grid>

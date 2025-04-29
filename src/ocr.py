@@ -121,12 +121,17 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
             token = auth.get_auth_token()
             device_id = auth.get_device_id()
             
+            # Use the token itself as the CSRF token (common pattern for API auth)
+            csrf_token = token
+            
             # Prepare headers
             headers = {
                 "Authorization": f"Bearer {token}",
                 "X-Device-ID": device_id,
                 "X-App-Version": os.getenv("APP_VERSION", "1.0.0"),
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "X-CSRF-TOKEN": csrf_token,
+                "Origin": "http://localhost:3000"  # Add Origin header to satisfy CSRF protection
             }
             
             # Send the image to the backend proxy service
@@ -142,13 +147,29 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
             
             # Check for errors
             if response.status_code == 401 or response.status_code == 403:
+                # Try to parse the error response first
+                try:
+                    error_data = response.json()
+                    error_message = error_data.get('error', '')
+                    
+                    # Check specifically for rate limiting error
+                    if "limit reached" in error_message.lower() or response.status_code == 429:
+                        print(f"OCR Error: Daily usage limit reached. {error_message}")
+                        if "limit" in error_data:
+                            print(f"Your plan allows {error_data['limit']} requests per day.")
+                        return "ERROR: Daily OCR usage limit reached. Please try again tomorrow or upgrade your plan."
+                except:
+                    # If we can't parse the error, proceed with normal flow
+                    pass
+                
                 # Token expired or invalid - try to refresh token
-                refresh_success, _ = auth.refresh_token()
+                refresh_success, refresh_message = auth.refresh_token()
                 
                 if refresh_success:
                     # Try again with new token
                     token = auth.get_auth_token()
                     headers["Authorization"] = f"Bearer {token}"
+                    headers["X-CSRF-TOKEN"] = token  # Update CSRF token as well
                     
                     # Retry the request
                     response = session.post(
@@ -173,6 +194,7 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
                     # Try again with new token
                     token = auth.get_auth_token()
                     headers["Authorization"] = f"Bearer {token}"
+                    headers["X-CSRF-TOKEN"] = token  # Update CSRF token as well
                     
                     # Retry the request
                     response = session.post(
@@ -204,7 +226,25 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
             return text
             
         except requests.RequestException as e:
-            print(f"OCR Error - API request failed: {e}")
+            # More detailed error logging
+            error_msg = f"OCR Error - API request failed: {e}"
+            if hasattr(e, 'response') and e.response is not None:
+                status_code = e.response.status_code
+                error_msg += f" (Status code: {status_code})"
+                
+                # Try to extract error details from response
+                try:
+                    error_data = e.response.json()
+                    if 'error' in error_data:
+                        error_msg += f" - {error_data['error']}"
+                except:
+                    # If we can't parse the JSON, try to get the text
+                    try:
+                        error_msg += f" - {e.response.text[:200]}"  # First 200 chars of response
+                    except:
+                        pass
+            
+            print(error_msg)
             return None
             
     except Exception as e:

@@ -6,16 +6,25 @@ import secrets
 import string
 import os
 import smtplib
+import re
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import traceback
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 auth_routes = Blueprint('auth', __name__, url_prefix='/auth')
+
+# Set up rate limiter
+limiter = Limiter(
+    get_remote_address,
+    default_limits=["200 per day"]
+)
 
 # Email configuration
 SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
@@ -28,6 +37,81 @@ APP_URL = os.environ.get("APP_URL", "http://localhost:3000")
 # Store verification and reset tokens temporarily (in production, these should be in a database)
 verification_tokens = {}  # {token: {'email': email, 'expires': datetime}}
 reset_tokens = {}  # {token: {'user_id': user_id, 'email': email, 'expires': datetime}}
+
+# Add failed login tracking for IP-based throttling
+login_failures = {}  # {ip_address: {'count': 0, 'last_attempt': datetime}}
+MAX_LOGIN_ATTEMPTS = 5
+LOGIN_LOCKOUT_DURATION = 15  # minutes
+
+def validate_password_strength(password):
+    """
+    Validates that a password meets security requirements:
+    - At least 8 characters long
+    - Contains at least one uppercase letter
+    - Contains at least one lowercase letter
+    - Contains at least one digit
+    - Contains at least one special character
+    
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long"
+    
+    if not any(c.isupper() for c in password):
+        return False, "Password must contain at least one uppercase letter"
+    
+    if not any(c.islower() for c in password):
+        return False, "Password must contain at least one lowercase letter"
+    
+    if not any(c.isdigit() for c in password):
+        return False, "Password must contain at least one digit"
+    
+    # Check for at least one special character
+    special_chars = "!@#$%^&*()-_=+[]{}|;:'\",.<>/?"
+    if not any(c in special_chars for c in password):
+        return False, "Password must contain at least one special character"
+    
+    return True, "Password meets strength requirements"
+
+def validate_email_format(email):
+    """Validate email format"""
+    pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+    return re.match(pattern, email) is not None
+
+def check_login_rate_limit(ip_address):
+    """Check if IP address has exceeded login attempts and is locked out"""
+    now = datetime.now()
+    
+    if ip_address in login_failures:
+        failures = login_failures[ip_address]
+        
+        # If we're in lockout period, check if it's expired
+        if failures['count'] >= MAX_LOGIN_ATTEMPTS:
+            lockout_time = failures['last_attempt'] + timedelta(minutes=LOGIN_LOCKOUT_DURATION)
+            
+            if now < lockout_time:
+                # Still in lockout period
+                remaining_seconds = int((lockout_time - now).total_seconds())
+                return False, f"Too many failed login attempts. Please try again in {remaining_seconds} seconds."
+            else:
+                # Lockout period expired, reset counter
+                failures['count'] = 0
+    
+    return True, ""
+
+def record_failed_login(ip_address):
+    """Record a failed login attempt"""
+    now = datetime.now()
+    
+    if ip_address in login_failures:
+        login_failures[ip_address]['count'] += 1
+        login_failures[ip_address]['last_attempt'] = now
+    else:
+        login_failures[ip_address] = {
+            'count': 1,
+            'last_attempt': now
+        }
 
 def send_email(to_email, subject, html_content):
     """Send an email using SMTP"""
@@ -62,19 +146,34 @@ def generate_verification_token():
     return ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(64))
 
 @auth_routes.route('/register', methods=['POST'])
+@limiter.limit("10 per hour")
 def register():
     """Register a new user"""
     try:
         data = request.json
-        print(data)
+        
         # Validate required fields
         if not data or not data.get('email') or not data.get('password'):
             return jsonify({"error": "Email and password are required"}), 400
         
+        # Validate email format
+        if not validate_email_format(data['email']):
+            return jsonify({"error": "Invalid email format"}), 400
+            
+        # Validate password strength
+        is_valid, error_message = validate_password_strength(data['password'])
+        if not is_valid:
+            return jsonify({"error": error_message}), 400
+        
         # Check if email is already taken
         existing_user = User.get_by_email(data['email'])
         if existing_user:
-            return jsonify({"error": "Email already registered"}), 409
+            # Do not reveal if email exists for security (reduces user enumeration risk)
+            # Add random delay to prevent timing attacks
+            import time
+            import random
+            time.sleep(random.uniform(0.5, 1.5))
+            return jsonify({"error": "Invalid email or password"}), 401
         
         # Create the user
         new_user = User.create(
@@ -87,12 +186,16 @@ def register():
         if not new_user:
             return jsonify({"error": "Failed to create user"}), 500
         
-        # Generate token
-        token = generate_token(new_user['id'], new_user['email'])
-        
-        # Register device if identifier provided
+        # Extract device info
         device_info = extract_device_info(request)
         device_id = request.headers.get("X-Device-ID")
+        
+        # Generate tokens (access and refresh)
+        from auth import generate_token
+        access_token = generate_token(new_user['id'], new_user['email'], device_id)
+        refresh_token = generate_token(new_user['id'], new_user['email'], device_id, is_refresh=True)
+        
+        # Register device if identifier provided
         if device_id:
             Device.register(new_user['id'], device_id, device_info)
         
@@ -125,7 +228,8 @@ def register():
         new_user.pop('password_hash', None)
         return jsonify({
             "user": new_user,
-            "token": token,
+            "token": access_token,
+            "refresh_token": refresh_token,
             "verification_sent": True
         }), 201
         
@@ -134,45 +238,78 @@ def register():
         return jsonify({"error": "An error occurred during registration"}), 500
 
 @auth_routes.route('/login', methods=['POST'])
+@limiter.limit("15 per minute")
 def login():
     """Login a user"""
     try:
+        # Get client IP address
+        ip_address = get_remote_address()
+        
+        # Check if IP is in lockout period
+        allowed, error_message = check_login_rate_limit(ip_address)
+        if not allowed:
+            return jsonify({"error": error_message}), 429
+        
         data = request.json
         
         # Validate required fields
         if not data or not data.get('email') or not data.get('password'):
             return jsonify({"error": "Email and password are required"}), 400
         
+        # Add small random delay to prevent timing attacks
+        import time
+        import random
+        time.sleep(random.uniform(0.1, 0.5))
+        
         # Find the user
         user = User.get_by_email(data['email'])
         if not user:
+            # Record failed login but don't reveal that email doesn't exist
+            record_failed_login(ip_address)
+            logger.warning(f"Login attempt for non-existent email: {data['email']} from IP {ip_address}")
             return jsonify({"error": "Invalid email or password"}), 401
         
         # Verify password
         if not User.verify_password(user, data['password']):
+            # Record failed login
+            record_failed_login(ip_address)
+            logger.warning(f"Failed login attempt for email: {data['email']} from IP {ip_address}")
             return jsonify({"error": "Invalid email or password"}), 401
         
         # Check if user is active
         if user.get('status') != 'active':
+            logger.warning(f"Login attempt for inactive account: {data['email']} from IP {ip_address}")
             return jsonify({"error": "Account is inactive"}), 403
+        
+        # Reset failed login counter for this IP
+        if ip_address in login_failures:
+            login_failures[ip_address]['count'] = 0
         
         # Update last login time
         User.update_last_login(user['id'])
         
-        # Generate token
-        token = generate_token(user['id'], user['email'])
-        
-        # Register device if identifier provided
+        # Extract device info
         device_info = extract_device_info(request)
         device_id = request.headers.get("X-Device-ID")
+        
+        # Log successful login with device info
+        logger.info(f"Successful login for {data['email']} from IP {ip_address}, device: {device_info.get('device_type', 'unknown')}")
+        
+        # Generate tokens (access and refresh)
+        from auth import generate_token
+        access_token = generate_token(user['id'], user['email'], device_id)
+        refresh_token = generate_token(user['id'], user['email'], device_id, is_refresh=True)
+        
+        # Register device if identifier provided
         if device_id:
             Device.register(user['id'], device_id, device_info)
         
-        # Return user data and token (exclude password_hash)
+        # Return user data and tokens (exclude password_hash)
         user.pop('password_hash', None)
         return jsonify({
             "user": user,
-            "token": token
+            "token": access_token,
+            "refresh_token": refresh_token
         }), 200
         
     except Exception as e:
@@ -197,20 +334,68 @@ def get_current_user():
         return jsonify({"error": "An error occurred fetching user data"}), 500
 
 @auth_routes.route('/refresh', methods=['POST'])
-@login_required
-def refresh_token():
-    """Refresh the authentication token"""
+def refresh_access_token():
+    """Get a new access token using a refresh token"""
     try:
-        # Generate a new token
-        token = generate_token(g.user['id'], g.user['email'])
+        data = request.json
         
-        if not token:
-            return jsonify({"error": "Failed to generate token"}), 500
+        # Validate required fields
+        if not data or not data.get('refresh_token'):
+            return jsonify({"error": "Refresh token is required"}), 400
         
-        return jsonify({"token": token}), 200
+        refresh_token = data.get('refresh_token')
+        
+        # Decode the refresh token without verification first to get the user ID
+        try:
+            import jwt
+            from auth import JWT_SECRET, JWT_ALGORITHM
+            
+            # Decode without verification to get token info
+            unverified_payload = jwt.decode(
+                refresh_token, 
+                options={"verify_signature": False}
+            )
+            
+            # Check token type
+            if unverified_payload.get("type") != "refresh":
+                return jsonify({"error": "Invalid token type"}), 401
+            
+            # Now verify the token fully
+            payload = jwt.decode(
+                refresh_token, 
+                JWT_SECRET, 
+                algorithms=[JWT_ALGORITHM]
+            )
+            
+            user_id = payload["sub"]
+            email = payload["email"]
+            device_id = payload.get("device_id")
+            
+            # Check if user exists and is active
+            user = User.get_by_id(user_id)
+            if not user:
+                return jsonify({"error": "User not found"}), 401
+                
+            if user.get("status") != "active":
+                return jsonify({"error": "Account is inactive"}), 403
+                
+            # Generate new access token
+            from auth import generate_token
+            access_token = generate_token(user_id, email, device_id)
+            
+            return jsonify({
+                "token": access_token,
+                "user_id": user_id,
+                "email": email
+            }), 200
+            
+        except jwt.ExpiredSignatureError:
+            return jsonify({"error": "Refresh token has expired"}), 401
+        except jwt.InvalidTokenError as e:
+            return jsonify({"error": f"Invalid refresh token: {str(e)}"}), 401
         
     except Exception as e:
-        logger.error(f"Error in refresh_token route: {str(e)}")
+        logger.error(f"Error in refresh_access_token route: {str(e)}")
         return jsonify({"error": "An error occurred refreshing token"}), 500
 
 @auth_routes.route('/request-password-reset', methods=['POST'])
@@ -581,15 +766,27 @@ def complete_web_login():
             logger.error("Missing required parameters in complete-web-login request")
             return jsonify({"error": "Missing required parameters"}), 400
         
+        # Get client IP address
+        ip_address = get_remote_address()
+        
+        # Check if IP is in lockout period
+        allowed, error_message = check_login_rate_limit(ip_address)
+        if not allowed:
+            return jsonify({"error": error_message}), 429
+        
         # Authenticate the user
         user = User.get_by_email(email)
         if not user:
-            logger.warning(f"Invalid email in login attempt: {email}")
+            # Record failed login
+            record_failed_login(ip_address)
+            logger.warning(f"Invalid email in login attempt: {email} from IP {ip_address}")
             return jsonify({"error": "Invalid email or password"}), 401
         
         # Verify password
         if not User.verify_password(user, password):
-            logger.warning(f"Invalid password for user: {email}")
+            # Record failed login
+            record_failed_login(ip_address)
+            logger.warning(f"Invalid password for user: {email} from IP {ip_address}")
             return jsonify({"error": "Invalid email or password"}), 401
         
         # Check if user is active
@@ -597,17 +794,25 @@ def complete_web_login():
             logger.warning(f"Inactive account login attempt: {email}")
             return jsonify({"error": "Account is inactive"}), 403
         
-        # Generate token
-        token = generate_token(user['id'], user['email'])
+        # Reset failed login counter for this IP
+        if ip_address in login_failures:
+            login_failures[ip_address]['count'] = 0
+        
+        # Extract device info
+        device_info = extract_device_info(request)
+        
+        # Generate tokens (access and refresh)
+        from auth import generate_token
+        access_token = generate_token(user['id'], user['email'], device_id)
+        refresh_token = generate_token(user['id'], user['email'], device_id, is_refresh=True)
         
         # Register device if identifier provided
         if device_id:
-            device_info = extract_device_info(request)
             Device.register(user['id'], device_id, device_info)
             logger.info(f"Registered device {device_id} for user {email}")
         
         # Construct the callback URL
-        callback_url = f"{redirect_uri}?token={token}&user_id={user['id']}&email={user['email']}&state={state}"
+        callback_url = f"{redirect_uri}?token={access_token}&refresh_token={refresh_token}&user_id={user['id']}&email={user['email']}&state={state}"
         
         # Log the callback URL (but mask the token)
         logger.info(f"Created callback URL for {email} to {redirect_uri} (token masked)")
@@ -621,4 +826,30 @@ def complete_web_login():
     except Exception as e:
         logger.error(f"Error in complete_web_login route: {str(e)}")
         logger.error(traceback.format_exc())
-        return jsonify({"error": "An error occurred during login"}), 500 
+        return jsonify({"error": "An error occurred during login"}), 500
+
+@auth_routes.route('/logout', methods=['POST'])
+@login_required
+def logout():
+    """Log out a user by revoking their token"""
+    try:
+        # Get the current token from flask global context (set by login_required decorator)
+        token = g.current_token
+        
+        # Revoke the token
+        from auth import revoke_token
+        success = revoke_token(token)
+        
+        if not success:
+            return jsonify({"error": "Failed to revoke token"}), 500
+        
+        # Revoke refresh token if provided
+        refresh_token = request.json.get('refresh_token')
+        if refresh_token:
+            revoke_token(refresh_token)
+        
+        return jsonify({"message": "Successfully logged out"}), 200
+        
+    except Exception as e:
+        logger.error(f"Error in logout route: {str(e)}")
+        return jsonify({"error": "An error occurred during logout"}), 500 

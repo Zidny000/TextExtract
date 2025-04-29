@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   AppBar,
   Toolbar,
@@ -7,16 +7,24 @@ import {
   Button,
   Box,
   Link,
+  Avatar,
+  Menu,
+  MenuItem,
+  IconButton,
 } from '@mui/material';
 import { useAuth } from '../context/AuthContext';
+import { AccountCircle } from '@mui/icons-material';
 
 const Navbar = () => {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
+  const { user, isAuthenticated } = useAuth();
+  const [anchorEl, setAnchorEl] = React.useState(null);
+  
+  const handleMenu = (event) => {
+    setAnchorEl(event.currentTarget);
+  };
 
-  const handleLogout = () => {
-    logout();
-    navigate('/');
+  const handleClose = () => {
+    setAnchorEl(null);
   };
 
   return (
@@ -27,15 +35,65 @@ const Navbar = () => {
             TextExtract
           </Link>
         </Typography>
-        <Box>
-          {user ? (
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <Button color="inherit" component={RouterLink} to="/">
+            Home
+          </Button>
+          {isAuthenticated() ? (
             <>
-              <Button color="inherit" component={RouterLink} to="/profile">
-                Profile
-              </Button>
-              <Button color="inherit" onClick={handleLogout}>
-                Logout
-              </Button>
+              <IconButton
+                size="large"
+                aria-label="account of current user"
+                aria-controls="menu-appbar"
+                aria-haspopup="true"
+                onClick={handleMenu}
+                color="inherit"
+              >
+                {user?.full_name ? (
+                  <Avatar sx={{ width: 32, height: 32, bgcolor: 'secondary.main' }}>
+                    {user.full_name.charAt(0).toUpperCase()}
+                  </Avatar>
+                ) : (
+                  <AccountCircle />
+                )}
+              </IconButton>
+              <Menu
+                id="menu-appbar"
+                anchorEl={anchorEl}
+                anchorOrigin={{
+                  vertical: 'bottom',
+                  horizontal: 'right',
+                }}
+                keepMounted
+                transformOrigin={{
+                  vertical: 'top',
+                  horizontal: 'right',
+                }}
+                open={Boolean(anchorEl)}
+                onClose={handleClose}
+              >
+                <MenuItem 
+                  component={RouterLink} 
+                  to="/profile" 
+                  onClick={handleClose}
+                >
+                  Profile
+                </MenuItem>
+                <MenuItem 
+                  component={RouterLink} 
+                  to="/change-password" 
+                  onClick={handleClose}
+                >
+                  Change Password
+                </MenuItem>
+                <MenuItem 
+                  component={RouterLink} 
+                  to="/logout" 
+                  onClick={handleClose}
+                >
+                  Logout
+                </MenuItem>
+              </Menu>
             </>
           ) : (
             <>

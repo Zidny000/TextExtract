@@ -10,7 +10,10 @@ import ProfilePage from './pages/ProfilePage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import LogoutPage from './pages/LogoutPage';
 import { AuthProvider } from './context/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
+import PublicOnlyRoute from './components/PublicOnlyRoute';
 
 const theme = createTheme({
   palette: {
@@ -30,13 +33,56 @@ function App() {
       <AuthProvider>
         <Navbar />
         <Routes>
+          {/* Public routes accessible to everyone */}
           <Route path="/" element={<LandingPage />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<SignupPage />} />
-          <Route path="/profile" element={<ProfilePage />} />
-          <Route path="/change-password" element={<ChangePasswordPage />} />
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          
+          {/* Routes that should only be accessible when NOT logged in */}
+          <Route 
+            path="/login" 
+            element={
+              <PublicOnlyRoute>
+                <Login />
+              </PublicOnlyRoute>
+            } 
+          />
+          <Route 
+            path="/signup" 
+            element={
+              <PublicOnlyRoute>
+                <SignupPage />
+              </PublicOnlyRoute>
+            } 
+          />
+          <Route 
+            path="/forgot-password" 
+            element={
+              <PublicOnlyRoute>
+                <ForgotPasswordPage />
+              </PublicOnlyRoute>
+            } 
+          />
           <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
+          
+          {/* Protected routes that require authentication */}
+          <Route 
+            path="/profile" 
+            element={
+              <ProtectedRoute>
+                <ProfilePage />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/change-password" 
+            element={
+              <ProtectedRoute>
+                <ChangePasswordPage />
+              </ProtectedRoute>
+            } 
+          />
+          <Route path="/logout" element={<LogoutPage />} />
+          
+          {/* Fallback route - redirect to landing page */}
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </AuthProvider>

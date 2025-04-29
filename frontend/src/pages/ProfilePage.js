@@ -15,19 +15,26 @@ import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 
 const ProfilePage = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, axiosAuth } = useAuth();
   const navigate = useNavigate();
   const [message, setMessage] = useState('');
   const [usageStats, setUsageStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const fetchUsageStats = async () => {
       try {
-        const response = await axios.get('http://localhost:5000/users/profile');
-        setUsageStats(response.data.usage);
+        setError('');
+        const response = await axiosAuth.get('/users/profile');
+        if (response.data && response.data.usage) {
+          setUsageStats(response.data.usage);
+        } else {
+          setError('No usage data available');
+        }
       } catch (error) {
         console.error('Error fetching usage stats:', error);
+        setError('Failed to load usage statistics. Please try again later.');
       } finally {
         setLoading(false);
       }
@@ -36,7 +43,7 @@ const ProfilePage = () => {
     if (user) {
       fetchUsageStats();
     }
-  }, [user]);
+  }, [user, axiosAuth]);
 
   const handleLogout = () => {
     logout();
@@ -124,7 +131,7 @@ const ProfilePage = () => {
                   </Box>
                 </>
               ) : (
-                <Typography color="error">Failed to load usage statistics</Typography>
+                <Typography color="error">{error || 'Failed to load usage statistics'}</Typography>
               )}
             </Grid>
 

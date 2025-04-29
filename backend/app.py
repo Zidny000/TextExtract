@@ -15,7 +15,15 @@ from routes import register_routes
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+CORS(app, resources={
+    r"/*": {
+        "origins": ["*"], 
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization", "X-CSRF-TOKEN", "X-Device-ID"],
+        "supports_credentials": True,  # Important for cookies/auth
+        "max_age": 86400  # Cache preflight requests for 1 day
+    }
+})  # Enable CORS for all routes
 bcrypt = Bcrypt(app)
 
 # Configure logging
@@ -29,7 +37,7 @@ logger = logging.getLogger(__name__)
 limiter = Limiter(
     get_remote_address,
     app=app,
-    default_limits=["100 per day", "20 per hour"],
+    default_limits=["10000 per day", "1000 per hour"],
     storage_uri="memory://"
 )
 

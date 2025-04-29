@@ -111,7 +111,7 @@ class AuthModal(BaseDialog):
     def on_close(self):
         """Handle dialog close"""
         logger.debug("Auth modal closed by user")
-        self.set_result(False)
+        print("Auth modal is being closed")
         self.dialog.destroy()
     
     def _create_ui(self):
@@ -173,6 +173,22 @@ class AuthModal(BaseDialog):
             logger.error("Authentication dialog no longer exists")
             return
             
+        # First check if already authenticated
+        if auth.is_authenticated():
+            print("User is already authenticated, closing dialog with success")
+            self.status_var.set("Already authenticated!")
+            self.set_result(True)
+            # Call success callback if provided
+            if self.on_auth_success:
+                try:
+                    self.on_auth_success()
+                except Exception as e:
+                    print(f"Error in auth success callback: {e}")
+                    logger.error(f"Error in auth success callback: {e}")
+            # Close the dialog after a short delay
+            self.dialog.after(500, self.on_close)
+            return
+            
         self.auth_in_progress = True
         self.status_var.set("Opening browser for authentication...")
         self.dialog.update_idletasks()
@@ -187,18 +203,55 @@ class AuthModal(BaseDialog):
         # Log for debugging
         print("Authentication button clicked, opening browser...")
         
+        # Set up a timeout to prevent hanging forever
+        def check_auth_timeout():
+            # If auth is still in progress after 2 minutes, force success if user is authenticated or allow retry
+            if self.auth_in_progress and self.dialog and self.dialog.winfo_exists():
+                print("Authentication timeout check - checking if user is authenticated")
+                if auth.is_authenticated():
+                    print("Timeout check: User is now authenticated, completing dialog")
+                    self.dialog.after(0, lambda: self.handle_auth_success("Timeout - but user is authenticated"))
+                else:
+                    print("Timeout check: User still not authenticated, enabling retry")
+                    self.status_var.set("Taking too long. Please try again.")
+                    # Re-enable the button
+                    for widget in self.dialog.winfo_children():
+                        for child in widget.winfo_children():
+                            if isinstance(child, tk.Button) and child['text'] == "Opening browser...":
+                                child.config(state=tk.NORMAL, text="Open Login Page")
+                                break
+                    self.auth_in_progress = False
+
+        # Schedule the timeout check
+        auth_timeout_id = self.dialog.after(120000, check_auth_timeout)  # 2 minutes
+        
+        # Create callback for web authentication
+        def auth_success_callback():
+            print("Auth success callback received in AuthModal")
+            # Cancel the timeout check
+            self.dialog.after_cancel(auth_timeout_id)
+            # Ensure dialog closes on success
+            if self.dialog and self.dialog.winfo_exists():
+                self.dialog.after(0, lambda: self.handle_auth_success("Authentication successful"))
+        
         # Perform authentication in background to avoid freezing UI
         def auth_thread():
             try:
-                # Start the web authentication flow
-                success, message = auth.web_authenticate(self.on_auth_success)
+                # Start the web authentication flow with our close-on-success callback
+                success, message = auth.web_authenticate(auth_success_callback)
+                
+                # Cancel the timeout check since we got a response
+                try:
+                    self.dialog.after_cancel(auth_timeout_id)
+                except Exception:
+                    pass
                 
                 # Make sure dialog exists before updating UI
                 if self.dialog and self.dialog.winfo_exists():
-                    # Update UI from the main thread
-                    if success:
-                        print("Authentication successful!")
-                        self.dialog.after(0, lambda: self.handle_auth_success(message))
+                    # Check again if user is authenticated (in case web_authenticate didn't catch it)
+                    if success or auth.is_authenticated():
+                        print("Auth thread: Authentication is successful or user is authenticated")
+                        self.dialog.after(0, lambda: self.handle_auth_success(message or "User is authenticated"))
                     else:
                         print(f"Authentication failed: {message}")
                         self.dialog.after(0, lambda: self.handle_auth_failure(message))
@@ -225,17 +278,66 @@ class AuthModal(BaseDialog):
                     self.dialog.after(0, reenable_button)
             finally:
                 self.auth_in_progress = False
+                
+                # Schedule periodic checks to see if user is authenticated despite no callback
+                def check_auth_status():
+                    if not self.dialog or not self.dialog.winfo_exists():
+                        return
+                    
+                    if auth.is_authenticated():
+                        print("Periodic check: User is now authenticated, closing dialog")
+                        self.dialog.after(0, lambda: self.handle_auth_success("User is now authenticated"))
+                        return
+                    
+                    # If dialog is still open and we're still in auth_thread's finally block, schedule another check
+                    if self.dialog and self.dialog.winfo_exists() and self.auth_in_progress:
+                        self.dialog.after(2000, check_auth_status)  # Check every 2 seconds
+                
+                # Start periodic checks after a short delay
+                if self.dialog and self.dialog.winfo_exists():
+                    self.dialog.after(3000, check_auth_status)
         
         # Use a small delay before starting the thread to allow UI to update
         self.dialog.after(100, lambda: threading.Thread(target=auth_thread, daemon=True).start())
     
     def handle_auth_success(self, message):
         """Handle successful authentication"""
+        print(f"Handling auth success with message: {message}")
+        if not self.dialog or not self.dialog.winfo_exists():
+            print("Dialog does not exist, can't update UI for success")
+            return
+            
+        # Force dialog to be visible and active
+        try:
+            self.dialog.deiconify()
+            self.dialog.lift()
+            self.dialog.focus_force()
+            self.dialog.update()
+        except Exception as e:
+            print(f"Error ensuring dialog visibility: {e}")
+            
         self.status_var.set("Authentication successful!")
         self.set_result(True)
+        self.auth_in_progress = False
         
-        # Close the dialog after a short delay
-        self.dialog.after(1500, self.on_close)
+        # Call the success callback if provided
+        if self.on_auth_success:
+            try:
+                print("Calling provided on_auth_success callback")
+                self.on_auth_success()
+            except Exception as e:
+                print(f"Error in auth success callback: {e}")
+                logger.error(f"Error in auth success callback: {e}")
+        
+        # Close the dialog immediately
+        print("Forcefully closing dialog now")
+        try:
+            self.dialog.destroy()
+        except Exception as e:
+            print(f"Error destroying dialog: {e}")
+            logger.error(f"Error destroying dialog: {e}")
+            # Try one more time with a delay
+            self.dialog.after(100, self.on_close)
     
     def handle_auth_failure(self, message):
         """Handle authentication failure"""
@@ -250,6 +352,21 @@ class AuthModal(BaseDialog):
             if not self.dialog or not self.dialog.winfo_exists():
                 logger.error("Dialog doesn't exist or isn't valid")
                 return False
+
+            # Check if already authenticated before even showing the dialog
+            if auth.is_authenticated():
+                print("User is already authenticated, completing with success without showing dialog")
+                self.set_result(True)
+                # Call success callback if provided
+                if self.on_auth_success:
+                    try:
+                        self.on_auth_success()
+                    except Exception as e:
+                        print(f"Error in auth success callback: {e}")
+                        logger.error(f"Error in auth success callback: {e}")
+                # Don't show the dialog at all
+                self.dialog.destroy()
+                return True
                 
             # Ensure dialog is visible and on top
             self._ensure_visibility()
@@ -264,6 +381,11 @@ class AuthModal(BaseDialog):
             logger.error(f"Error showing auth modal dialog: {e}")
             logger.error(traceback.format_exc())
             return False
+
+    def set_result(self, result):
+        """Set the dialog result"""
+        print(f"Setting auth result to: {result}")
+        self.result = result
 
 def create_auth_modal(parent, title="Authentication Required", on_auth_success=None):
     """Create and return an authentication modal"""
