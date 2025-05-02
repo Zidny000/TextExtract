@@ -1,7 +1,7 @@
 import logging
-from flask import Blueprint, request, jsonify, g, redirect, render_template, Response
+from flask import Blueprint, request, jsonify, g, redirect, render_template, Response, session
 from database.models import User, Device
-from auth import generate_token, login_required, extract_device_info
+from auth import generate_token, login_required, extract_device_info, validate_token
 import secrets
 import string
 import os
@@ -33,6 +33,7 @@ SMTP_USERNAME = os.environ.get("SMTP_USERNAME", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "noreply@textextract.com")
 APP_URL = os.environ.get("APP_URL", "http://localhost:3000")
+AUTH_CALLBACK_PORT = os.environ.get("AUTH_CALLBACK_PORT", "9845")
 
 # Store verification and reset tokens temporarily (in production, these should be in a database)
 verification_tokens = {}  # {token: {'email': email, 'expires': datetime}}
@@ -144,6 +145,8 @@ def send_email(to_email, subject, html_content):
 def generate_verification_token():
     """Generate a secure verification token"""
     return ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(64))
+
+
 
 @auth_routes.route('/register', methods=['POST'])
 @limiter.limit("10 per hour")
@@ -692,12 +695,14 @@ def change_password():
 
 @auth_routes.route('/web-login', methods=['GET'])
 def web_login():
+    
     """Redirect to the web login page with query parameters for the desktop app callback"""
     # Get parameters from query string
     redirect_uri = request.args.get('redirect_uri', '')
     device_id = request.args.get('device_id', '')
     state = request.args.get('state', '')
-    
+    direct_auth_url = request.args.get('direct_auth_url', '')
+
     logger.info(f"Web login request received. Redirect URI: {redirect_uri}, Device ID: {device_id}, State: {state}")
     
     if not redirect_uri:
@@ -827,6 +832,103 @@ def complete_web_login():
         logger.error(f"Error in complete_web_login route: {str(e)}")
         logger.error(traceback.format_exc())
         return jsonify({"error": "An error occurred during login"}), 500
+    
+@auth_routes.route('/direct-web-login', methods=['POST'])
+@login_required
+def direct_web_login():
+    """Complete the web login process and redirect back to the desktop app"""
+    try:
+        data = request.json
+        
+        # Get parameters
+        email = data.get('email')
+        redirect_uri = data.get('redirect_uri')
+        device_id = data.get('device_id')
+        state = data.get('state')
+        
+        ip_address = get_remote_address()
+
+        # Authenticate the user
+        user = User.get_by_email(email)
+
+        
+        # Check if user is active
+        # if user.get('status') != 'active':
+        #     logger.warning(f"Inactive account login attempt: {email}")
+        #     return jsonify({"error": "Account is inactive"}), 403
+        
+        # Reset failed login counter for this IP
+        if ip_address in login_failures:
+            login_failures[ip_address]['count'] = 0
+        
+        # Extract device info
+        device_info = extract_device_info(request)
+        
+        # Generate tokens (access and refresh)
+        from auth import generate_token
+        access_token = generate_token(user['id'], user['email'], device_id)
+        refresh_token = generate_token(user['id'], user['email'], device_id, is_refresh=True)
+        
+        # Register device if identifier provided
+        if device_id:
+            Device.register(user['id'], device_id, device_info)
+            logger.info(f"Registered device {device_id} for user {email}")
+        
+        # Construct the callback URL
+        callback_url = f"{redirect_uri}?token={access_token}&refresh_token={refresh_token}&user_id={user['id']}&email={user['email']}&state={state}"
+        
+        # Log the callback URL (but mask the token)
+        logger.info(f"Created callback URL for {email} to {redirect_uri} (token masked)")
+        
+        # Return success with callback URL
+        return jsonify({
+            "success": True,
+            "callback_url": callback_url
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"Error in complete_web_login route: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({"error": "An error occurred during login"}), 500
+
+
+
+def maybe_redirect_authenticated_user(direct_auth_url, device_id, state):
+    """Check if the user is already authenticated via token and redirect to direct_auth_url if so"""
+   
+    try:
+        # For desktop applications, we can't directly access tokens from localStorage
+        # If we're in a Flask session, we might be able to get user info
+        user = None
+        
+        # Check if we have a session-based user (if Flask session is being used)
+        if hasattr(g, 'user') and g.user:
+            user = g.user
+        
+        # Check if we have a user in the session
+        elif hasattr(session, 'user') and session.user:
+            user = session.user
+            
+        # No authenticated user found
+        if not user:
+            logger.info("No authenticated user found, proceeding with standard login flow")
+            return None
+
+        logger.info(f"User {user.get('email', 'unknown')} already authenticated, redirecting to direct_auth_url")
+
+        # Generate new tokens
+        access_token = generate_token(user['id'], user['email'], device_id)
+        refresh_token = generate_token(user['id'], user['email'], device_id, is_refresh=True)
+
+        # Construct callback URL
+        callback_url = f"{direct_auth_url}?token={access_token}&refresh_token={refresh_token}" \
+                       f"&user_id={user['id']}&email={user['email']}&state={state}"
+
+        return redirect(callback_url)
+
+    except Exception as e:
+        logger.error(f"Error checking existing authentication: {str(e)}")
+        return None
 
 @auth_routes.route('/logout', methods=['POST'])
 @login_required

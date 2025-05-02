@@ -40,9 +40,7 @@ function App() {
           <Route 
             path="/login" 
             element={
-              <PublicOnlyRoute>
                 <Login />
-              </PublicOnlyRoute>
             } 
           />
           <Route 

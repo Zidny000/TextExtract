@@ -14,20 +14,21 @@ import {
 import { useLocation, useNavigate, Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loadingButton, setLoadingButton] = useState(false);
   const [error, setError] = useState('');
   const [isDesktopAuth, setIsDesktopAuth] = useState(false);
   const [redirectParams, setRedirectParams] = useState(null);
   
   const location = useLocation();
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, isAuthenticated, user, axiosAuth, loading } = useAuth();
 
   // Get the redirect URL from location state (if navigated from a protected route)
   const from = location.state?.from || '/profile';
@@ -38,7 +39,7 @@ function Login() {
     const redirectUri = queryParams.get('redirect_uri');
     const deviceId = queryParams.get('device_id');
     const state = queryParams.get('state');
-
+    console.log('redirectUri', redirectUri)
     if (redirectUri) {
       setIsDesktopAuth(true);
       setRedirectParams({
@@ -47,11 +48,33 @@ function Login() {
         state: state
       });
     }
-  }, [location]);
+    console.log('isAuthenticated', isAuthenticated())
+    if(isAuthenticated() && isDesktopAuth) {
+      alreadyLoggedIn();
+    }
+    if(isAuthenticated() && !isDesktopAuth) {
+      navigate(from, { replace: true });
+    }
+  }, [location,loading]);
+
+
+  const alreadyLoggedIn = async () => {
+    const response = await axiosAuth.post(`${API_URL}/auth/direct-web-login`, {
+      email:user.email,
+      redirect_uri: redirectParams.redirect_uri,
+      device_id: redirectParams.device_id,
+      state: redirectParams.state
+    });
+    if (response.data.success && response.data.callback_url) {
+      // Redirect to the callback URL which will be handled by the desktop app
+      window.location.href = response.data.callback_url;
+      return;
+    }
+  }
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    setLoadingButton(true);
     setError('');
 
     try {
@@ -85,7 +108,7 @@ function Login() {
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to log in. Please try again.');
     } finally {
-      setLoading(false);
+      setLoadingButton(false);
     }
   };
 
@@ -155,7 +178,7 @@ function Login() {
               sx={{ mt: 3, mb: 2 }}
               disabled={loading}
             >
-              {loading ? <CircularProgress size={24} /> : 'Sign In'}
+              {loadingButton ? <CircularProgress size={24} /> : 'Sign In'}
             </Button>
             <Grid container>
               <Grid item xs>
