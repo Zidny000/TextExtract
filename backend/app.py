@@ -9,7 +9,7 @@ from flask_limiter.util import get_remote_address
 from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
 from database import db_init
-from routes import register_routes
+from routes import init_routes
 
 # Load environment variables from .env file
 load_dotenv()
@@ -48,8 +48,8 @@ try:
 except Exception as e:
     logger.error(f"Database initialization error: {str(e)}")
     
-# Register all application routes
-register_routes(app)
+# Initialize routes
+init_routes(app)
 
 # Legacy non-authenticated OCR endpoint - will be deprecated
 @app.route('/api/ocr-legacy', methods=['POST'])

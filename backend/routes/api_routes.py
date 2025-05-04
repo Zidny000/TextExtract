@@ -118,7 +118,7 @@ def ocr_proxy():
             "text": text,
             "meta": {
                 "processing_time_ms": response_time_ms,
-                "remaining_requests": g.user.get("max_requests_per_day", 50) - User.get_daily_request_count(g.user_id)
+                "remaining_requests": g.user.get("max_requests_per_day", 50) - User.get_monthly_request_count(g.user_id)
             }
         })
         

@@ -10,6 +10,11 @@ import {
   Divider,
   Alert,
   LinearProgress,
+  Card,
+  CardContent,
+  List,
+  ListItem,
+  ListItemText,
 } from '@mui/material';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
@@ -27,6 +32,7 @@ const ProfilePage = () => {
       try {
         setError('');
         const response = await axiosAuth.get('/users/profile');
+        console.log(response.data);
         if (response.data && response.data.usage) {
           setUsageStats(response.data.usage);
         } else {
@@ -56,7 +62,7 @@ const ProfilePage = () => {
 
   const getUsagePercentage = () => {
     if (!usageStats) return 0;
-    return Math.min((usageStats.today_requests / usageStats.plan_limit) * 100, 100);
+    return Math.min((usageStats.monthly_requests / usageStats.plan_limit) * 100, 100);
   };
 
   return (
@@ -84,7 +90,7 @@ const ProfilePage = () => {
                 <strong>Email:</strong> {user.email}
               </Typography>
               <Typography>
-                <strong>Plan:</strong> {user.plan_type || 'Free'}
+                <strong>Plan:</strong> {user.plan_type.toUpperCase() || 'Free'}
               </Typography>
               <Typography>
                 <strong>Status:</strong> {user.status || 'Active'}
@@ -105,7 +111,7 @@ const ProfilePage = () => {
                 <>
                   <Box sx={{ mb: 2 }}>
                     <Typography variant="subtitle1" gutterBottom>
-                      Daily API Requests
+                      Montly API Requests
                     </Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                       <Box sx={{ flexGrow: 1 }}>
@@ -116,14 +122,14 @@ const ProfilePage = () => {
                         />
                       </Box>
                       <Typography variant="body2" color="text.secondary">
-                        {usageStats.today_requests} / {usageStats.plan_limit}
+                        {usageStats.monthly_requests} / {usageStats.plan_limit}
                       </Typography>
                     </Box>
                   </Box>
 
                   <Box sx={{ mt: 2 }}>
                     <Typography variant="subtitle2" color="text.secondary">
-                      Remaining Requests Today
+                      Remaining Requests
                     </Typography>
                     <Typography variant="h6">
                       {usageStats.remaining_requests}
@@ -133,6 +139,50 @@ const ProfilePage = () => {
               ) : (
                 <Typography color="error">{error || 'Failed to load usage statistics'}</Typography>
               )}
+            </Grid>
+
+            <Grid item xs={12}>
+              <Typography variant="h6" gutterBottom>
+                Subscription
+              </Typography>
+              <Divider sx={{ mb: 2 }} />
+              <Card variant="outlined" sx={{ mb: 2 }}>
+                <CardContent>
+                  <Typography variant="h5" gutterBottom>
+                    {user.plan_type.toUpperCase()} PLAN
+                  </Typography>
+                  <List dense>
+                    <ListItem>
+                      <ListItemText 
+                        primary="Monthly OCR Requests" 
+                        secondary={usageStats?.plan_limit || "Loading..."}
+                      />
+                    </ListItem>
+                    <ListItem>
+                      <ListItemText 
+                        primary="Subscription Status" 
+                        secondary={user.subscription_end_date ? "Active" : "Free Tier"}
+                      />
+                    </ListItem>
+                    {user.subscription_end_date && (
+                      <ListItem>
+                        <ListItemText 
+                          primary="Renewal Date" 
+                          secondary={new Date(user.subscription_end_date).toLocaleDateString()}
+                        />
+                      </ListItem>
+                    )}
+                  </List>
+                  <Button 
+                    variant="contained" 
+                    color="primary"
+                    onClick={() => navigate('/subscription')}
+                    sx={{ mt: 2 }}
+                  >
+                    {user.plan_type === 'free' ? 'Upgrade Plan' : 'Manage Subscription'}
+                  </Button>
+                </CardContent>
+              </Card>
             </Grid>
 
             <Grid item xs={12}>

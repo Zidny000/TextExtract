@@ -14,6 +14,7 @@ import LogoutPage from './pages/LogoutPage';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicOnlyRoute from './components/PublicOnlyRoute';
+import SubscriptionPage from './pages/SubscriptionPage';
 
 const theme = createTheme({
   palette: {
@@ -79,6 +80,14 @@ function App() {
             } 
           />
           <Route path="/logout" element={<LogoutPage />} />
+          <Route 
+            path="/subscription" 
+            element={
+              <ProtectedRoute>
+                <SubscriptionPage />
+              </ProtectedRoute>
+            } 
+          />
           
           {/* Fallback route - redirect to landing page */}
           <Route path="*" element={<Navigate to="/" />} />

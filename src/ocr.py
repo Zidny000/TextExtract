@@ -7,6 +7,8 @@ import base64
 import json
 import requests
 import time
+import tkinter as tk
+from tkinter import messagebox
 from PIL import Image, ImageEnhance
 from mss import mss
 from config import DEFAULT_LANGUAGE
@@ -63,6 +65,50 @@ def image_to_base64(image):
     buffered = io.BytesIO()
     image.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
+
+def show_upgrade_dialog(parent_window, current_count, max_count):
+    """Show dialog prompting user to upgrade their subscription"""
+    root = tk.Tk() if parent_window is None else tk.Toplevel(parent_window)
+    root.withdraw()  # Hide the root window
+    
+    result = messagebox.askyesno(
+        "Subscription Limit Reached",
+        f"You have used {current_count} of your {max_count} daily OCR requests.\n\n"
+        "Would you like to upgrade your subscription plan for more requests?",
+        parent=parent_window if parent_window else root
+    )
+    
+    if result:
+        # Open subscription page in browser
+        import webbrowser
+        webbrowser.open("http://localhost:3000/subscription")
+    
+    if parent_window is None:
+        root.destroy()
+    
+    return result
+
+def show_device_limit_dialog(parent_window):
+    """Show dialog informing user they've reached device limit"""
+    root = tk.Tk() if parent_window is None else tk.Toplevel(parent_window)
+    root.withdraw()  # Hide the root window
+    
+    result = messagebox.askyesno(
+        "Device Limit Reached",
+        "You have reached the maximum number of devices allowed on your current plan.\n\n"
+        "Would you like to upgrade your subscription for more devices?",
+        parent=parent_window if parent_window else root
+    )
+    
+    if result:
+        # Open subscription page in browser
+        import webbrowser
+        webbrowser.open("http://localhost:3000/subscription")
+    
+    if parent_window is None:
+        root.destroy()
+    
+    return result
 
 def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
     """Extract text from the specified screen area using the OCR proxy service."""
@@ -152,105 +198,123 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
                     error_data = response.json()
                     error_message = error_data.get('error', '')
                     
-                    # Check specifically for rate limiting error
-                    if "limit reached" in error_message.lower() or response.status_code == 429:
-                        print(f"OCR Error: Daily usage limit reached. {error_message}")
-                        if "limit" in error_data:
-                            print(f"Your plan allows {error_data['limit']} requests per day.")
-                        return "ERROR: Daily OCR usage limit reached. Please try again tomorrow or upgrade your plan."
+                    # Token expired or invalid - try to refresh token
+                    refresh_success, refresh_message = auth.refresh_token()
+                    
+                    if refresh_success:
+                        # Try again with new token
+                        token = auth.get_auth_token()
+                        headers["Authorization"] = f"Bearer {token}"
+                        headers["X-CSRF-TOKEN"] = token  # Update CSRF token as well
+                        
+                        # Retry the request
+                        response = session.post(
+                            PROXY_API_URL,
+                            headers=headers,
+                            json={
+                                "image": img_base64,
+                                "language": DEFAULT_LANGUAGE
+                            },
+                            timeout=30
+                        )
+                    else:
+                        # Show login modal to get new credentials
+                        from src.ui.dialogs.auth_modal import create_auth_modal
+                        login_modal = create_auth_modal(parent_window, "Session Expired")
+                        is_authenticated = login_modal.show() if login_modal else False
+                        
+                        if not is_authenticated:
+                            print("Authentication required to use OCR features")
+                            return None
+                        
+                        # Try again with new token
+                        token = auth.get_auth_token()
+                        headers["Authorization"] = f"Bearer {token}"
+                        headers["X-CSRF-TOKEN"] = token  # Update CSRF token as well
+                        
+                        # Retry the request
+                        response = session.post(
+                            PROXY_API_URL,
+                            headers=headers,
+                            json={
+                                "image": img_base64,
+                                "language": DEFAULT_LANGUAGE
+                            },
+                            timeout=30
+                        )
                 except:
                     # If we can't parse the error, proceed with normal flow
                     pass
-                
-                # Token expired or invalid - try to refresh token
-                refresh_success, refresh_message = auth.refresh_token()
-                
-                if refresh_success:
-                    # Try again with new token
-                    token = auth.get_auth_token()
-                    headers["Authorization"] = f"Bearer {token}"
-                    headers["X-CSRF-TOKEN"] = token  # Update CSRF token as well
                     
-                    # Retry the request
-                    response = session.post(
-                        PROXY_API_URL,
-                        headers=headers,
-                        json={
-                            "image": img_base64,
-                            "language": DEFAULT_LANGUAGE
-                        },
-                        timeout=30
-                    )
-                else:
-                    # Show login modal to get new credentials
-                    from src.ui.dialogs.auth_modal import create_auth_modal
-                    login_modal = create_auth_modal(parent_window, "Session Expired")
-                    is_authenticated = login_modal.show() if login_modal else False
-                    
-                    if not is_authenticated:
-                        print("Authentication required to use OCR features")
-                        return None
-                    
-                    # Try again with new token
-                    token = auth.get_auth_token()
-                    headers["Authorization"] = f"Bearer {token}"
-                    headers["X-CSRF-TOKEN"] = token  # Update CSRF token as well
-                    
-                    # Retry the request
-                    response = session.post(
-                        PROXY_API_URL,
-                        headers=headers,
-                        json={
-                            "image": img_base64,
-                            "language": DEFAULT_LANGUAGE
-                        },
-                        timeout=30
-                    )
-            
-            # Check if we still have errors
-            response.raise_for_status()
-            
-            # Parse the response
-            result = response.json()
-            
-            # Extract the text from the response
-            text = result.get('text', '')
-            
-            if text:
-                copy_to_clipboard(text)
-                
-            # Log usage info if available
-            if "meta" in result and "remaining_requests" in result["meta"]:
-                print(f"Remaining requests today: {result['meta']['remaining_requests']}")
-                
-            return text
-            
-        except requests.RequestException as e:
-            # More detailed error logging
-            error_msg = f"OCR Error - API request failed: {e}"
-            if hasattr(e, 'response') and e.response is not None:
-                status_code = e.response.status_code
-                error_msg += f" (Status code: {status_code})"
-                
-                # Try to extract error details from response
+            elif response.status_code == 429:
+                # Rate limiting error - subscription limit reached
                 try:
-                    error_data = e.response.json()
-                    if 'error' in error_data:
-                        error_msg += f" - {error_data['error']}"
+                    error_data = response.json()
+                    limit = error_data.get('limit', 20)
+                    
+                    # Show upgrade dialog
+                    upgrade_result = show_upgrade_dialog(parent_window, limit, limit)
+                    
+                    return "ERROR: Daily OCR usage limit reached. Please try again tomorrow or upgrade your plan."
                 except:
-                    # If we can't parse the JSON, try to get the text
-                    try:
-                        error_msg += f" - {e.response.text[:200]}"  # First 200 chars of response
-                    except:
-                        pass
+                    return "ERROR: Daily OCR usage limit reached. Please try again tomorrow or upgrade your plan."
             
-            print(error_msg)
+            # Check for device limit error
+            elif response.status_code == 403 and "device limit" in response.text.lower():
+                # Device limit reached
+                show_device_limit_dialog(parent_window)
+                return "ERROR: Device limit reached. Please use one of your existing devices or upgrade your plan."
+            
+            # Check if the response is successful
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    
+                    # Extract the text from the response
+                    text = data.get("text", "")
+                    
+                    # Get meta information
+                    meta = data.get("meta", {})
+                    remaining_requests = meta.get("remaining_requests", 0)
+                    
+                    # Show warning if nearing the limit (less than 20% remaining)
+                    if "meta" in data and remaining_requests <= 2:
+                        root = tk.Tk() if parent_window is None else tk.Toplevel(parent_window)
+                        root.withdraw()
+                        
+                        messagebox.showwarning(
+                            "Running Low on OCR Requests",
+                            f"You have {remaining_requests} OCR requests remaining today. " +
+                            "Consider upgrading your plan for more requests.",
+                            parent=parent_window if parent_window else root
+                        )
+                        
+                        if parent_window is None:
+                            root.destroy()
+                    
+                    return text
+                except Exception as e:
+                    print(f"Error parsing response: {e}")
+                    return None
+            else:
+                try:
+                    error_data = response.json()
+                    error_message = error_data.get('error', 'Unknown error')
+                    print(f"API error: {error_message}")
+                    return f"ERROR: {error_message}"
+                except:
+                    print(f"API error: {response.text}")
+                    return f"ERROR: API request failed with status code {response.status_code}"
+        
+        except Exception as e:
+            print(f"Error making API request: {e}")
             return None
             
     except Exception as e:
-        print(f"OCR Error: {e}")
+        print(f"Error capturing screenshot: {e}")
         return None
+    
     finally:
-        # Clean up resources
+        # Ensure screenshot taker is cleaned up
         if screenshot_taker:
             screenshot_taker.close()

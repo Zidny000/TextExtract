@@ -157,6 +157,32 @@ export const AuthProvider = ({ children }) => {
     setupInterceptors();
   }, [token, refreshToken, setupInterceptors]);
 
+
+  const signup = async (email, password, fullName) => {
+    try {
+      const response = await axios.post(`${API_URL}/auth/register`, {
+        email,
+        password,
+        full_name: fullName,
+      });
+      const { token, refresh_token, user } = response.data;
+      // Save to state
+      setToken(token);
+      setRefreshToken(refresh_token);
+      setUser(user);
+
+      // Save to local storage
+      localStorage.setItem(TOKEN_KEY, token);
+      localStorage.setItem(REFRESH_TOKEN_KEY, refresh_token);
+      localStorage.setItem(USER_KEY, JSON.stringify(user));
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.response?.data?.error || 'Signup failed' };
+    }
+  };
+
   const login = async (email, password) => {
     try {
       const response = await axiosAuth.post(`${API_URL}/auth/login`, {
@@ -237,6 +263,7 @@ export const AuthProvider = ({ children }) => {
     user,
     token,
     loading,
+    signup,
     login,
     logout,
     refreshAccessToken,

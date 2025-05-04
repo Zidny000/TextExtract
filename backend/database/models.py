@@ -18,12 +18,23 @@ class User:
             # Hash password
             password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
             
+            # Get plan details
+            plan = SubscriptionPlan.get_by_name(plan_type)
+            max_requests = 20  # Default free tier value
+            device_limit = 2   # Default free tier value
+            
+            if plan:
+                max_requests = plan.get("max_requests_per_month", 20)
+                device_limit = plan.get("device_limit", 2)
+            
             # Create user in Supabase
             response = supabase.table("users").insert({
                 "email": email,
                 "password_hash": password_hash,
                 "full_name": full_name,
                 "plan_type": plan_type,
+                "max_requests_per_month": max_requests,
+                "device_limit": device_limit,
                 "created_at": datetime.datetime.now().isoformat(),
                 "updated_at": datetime.datetime.now().isoformat()
             }).execute()
@@ -80,24 +91,43 @@ class User:
         except Exception as e:
             logger.error(f"Error verifying password: {str(e)}")
             return False
-    
+        
     @staticmethod
-    def get_daily_request_count(user_id, date=None):
-        """Get the number of API requests made by a user on a specific date"""
-        if date is None:
-            date = datetime.date.today()
+    def get_monthly_request_count(user_id, month=None, year=None):
+        """Get the number of API requests made by a user for a specific month"""
+        if month is None or year is None:
+            today = datetime.date.today()
+            month = today.month
+            year = today.year
         
         try:
-            date_str = date.isoformat()
-            response = supabase.table("usage_stats").select("requests_count").eq("user_id", user_id).eq("date", date_str).execute()
+            # Get the first and last day of the month
+            first_day = datetime.date(year, month, 1)
             
-            if len(response.data) > 0:
-                return response.data[0]["requests_count"]
-            return 0
+            # Get the last day by finding the first day of next month and subtracting one day
+            if month == 12:
+                last_day = datetime.date(year + 1, 1, 1) - datetime.timedelta(days=1)
+            else:
+                last_day = datetime.date(year, month + 1, 1) - datetime.timedelta(days=1)
+            
+            # Query the database for the sum of requests in the date range
+            response = supabase.table("usage_stats") \
+                .select("requests_count") \
+                .eq("user_id", user_id) \
+                .gte("date", first_day.isoformat()) \
+                .lte("date", last_day.isoformat()) \
+                .execute()
+            
+            # Sum up all the requests for the month
+            total_requests = 0
+            for record in response.data:
+                total_requests += record.get("requests_count", 0)
+                
+            return total_requests
         except Exception as e:
-            logger.error(f"Error getting daily request count: {str(e)}")
+            logger.error(f"Error getting monthly request count: {str(e)}")
             return 0
-    
+
     @staticmethod
     def can_make_request(user_id):
         """Check if user can make another request based on their plan limits"""
@@ -107,16 +137,91 @@ class User:
             if not user:
                 return False
             
-            # Get max requests allowed per day
-            max_requests = user.get("max_requests_per_day", 50)
+            # Get max requests allowed per month
+            max_requests = user.get("max_requests_per_month", 20)
             
-            # Get current request count
-            current_count = User.get_daily_request_count(user_id)
+            # Get current request count for this month
+            current_count = User.get_monthly_request_count(user_id)
             
             # Check if user is within limits
             return current_count < max_requests
         except Exception as e:
             logger.error(f"Error checking if user can make request: {str(e)}")
+            return False
+
+    @staticmethod
+    def update_subscription(user_id, plan_type, subscription_id=None, subscription_start=None, subscription_end=None):
+        """Update user subscription information"""
+        try:
+            # Get plan details
+            plan = SubscriptionPlan.get_by_name(plan_type)
+            if not plan:
+                logger.error(f"Plan type {plan_type} not found")
+                return False
+                
+            # Set defaults if not provided
+            if subscription_start is None:
+                subscription_start = datetime.datetime.now().isoformat()
+                
+            if subscription_end is None and plan_type != "free":
+                # Default to 1 month subscription
+                end_date = datetime.datetime.now() + datetime.timedelta(days=30)
+                subscription_end = end_date.isoformat()
+            
+            update_data = {
+                "plan_type": plan_type,
+                "max_requests_per_month": plan.get("max_requests_per_month", 20),
+                "device_limit": plan.get("device_limit", 2),
+                "updated_at": datetime.datetime.now().isoformat()
+            }
+            
+            if subscription_id:
+                update_data["subscription_id"] = subscription_id
+                
+            if subscription_start:
+                update_data["subscription_start_date"] = subscription_start
+                
+            if subscription_end:
+                update_data["subscription_end_date"] = subscription_end
+            
+            response = supabase.table("users").update(update_data).eq("id", user_id).execute()
+            
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error updating user subscription: {str(e)}")
+            return None
+            
+    @staticmethod
+    def get_device_count(user_id):
+        """Get the number of devices registered for a user"""
+        try:
+            response = supabase.table("devices").select("id", count="exact").eq("user_id", user_id).eq("status", "active").execute()
+            return response.count
+        except Exception as e:
+            logger.error(f"Error getting device count: {str(e)}")
+            return 0
+
+    @staticmethod
+    def can_register_device(user_id):
+        """Check if user can register a new device based on their plan limits"""
+        try:
+            # Get user and their plan
+            user = User.get_by_id(user_id)
+            if not user:
+                return False
+            
+            # Get device limit
+            device_limit = user.get("device_limit", 2)
+            
+            # Get current device count
+            device_count = User.get_device_count(user_id)
+            
+            # Check if user is within limits
+            return device_count < device_limit
+        except Exception as e:
+            logger.error(f"Error checking if user can register device: {str(e)}")
             return False
 
 
@@ -243,12 +348,18 @@ class Device:
                 supabase.table("devices").update(update_data).eq("id", device_id).execute()
                 return device_id
             else:
+                # Check if user can register a new device
+                if not User.can_register_device(user_id):
+                    logger.warning(f"User {user_id} attempted to register a new device but has reached their device limit")
+                    return None
+                
                 # Create new device
                 device_data = {
                     "user_id": user_id,
                     "device_identifier": device_identifier,
                     "created_at": datetime.datetime.now().isoformat(),
-                    "last_active": datetime.datetime.now().isoformat()
+                    "last_active": datetime.datetime.now().isoformat(),
+                    "status": "active"
                 }
                 
                 # Add device info if provided
@@ -281,4 +392,110 @@ class Device:
             return response.data
         except Exception as e:
             logger.error(f"Error getting user devices: {str(e)}")
+            return [] 
+
+
+class SubscriptionPlan:
+    """Model for subscription plans"""
+    
+    @staticmethod
+    def get_all_active():
+        """Get all active subscription plans"""
+        try:
+            response = supabase.table("subscription_plans").select("*").eq("status", "active").execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Error getting subscription plans: {str(e)}")
+            return []
+    
+    @staticmethod
+    def get_by_id(plan_id):
+        """Get subscription plan by ID"""
+        try:
+            response = supabase.table("subscription_plans").select("*").eq("id", plan_id).execute()
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error getting subscription plan by ID: {str(e)}")
+            return None
+    
+    @staticmethod
+    def get_by_name(plan_name):
+        """Get subscription plan by name"""
+        try:
+            response = supabase.table("subscription_plans").select("*").eq("name", plan_name).execute()
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error getting subscription plan by name: {str(e)}")
+            return None
+
+
+class PaymentTransaction:
+    """Model for payment transactions"""
+    
+    @staticmethod
+    def create(user_id, plan_id, amount, currency="USD", payment_provider="paypal", transaction_id=None, status="pending", payload=None):
+        """Create a new payment transaction"""
+        try:
+            transaction_data = {
+                "user_id": user_id,
+                "plan_id": plan_id,
+                "amount": amount,
+                "currency": currency,
+                "payment_provider": payment_provider,
+                "status": status,
+                "created_at": datetime.datetime.now().isoformat(),
+                "updated_at": datetime.datetime.now().isoformat()
+            }
+            
+            if transaction_id:
+                transaction_data["transaction_id"] = transaction_id
+                
+            if payload:
+                if isinstance(payload, dict):
+                    transaction_data["payload"] = payload
+                else:
+                    transaction_data["payload"] = json.loads(payload)
+            
+            response = supabase.table("payment_transactions").insert(transaction_data).execute()
+            
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error creating payment transaction: {str(e)}")
+            return None
+    
+    @staticmethod
+    def update_status(transaction_id, status, transaction_external_id=None):
+        """Update status of a payment transaction"""
+        try:
+            update_data = {
+                "status": status,
+                "updated_at": datetime.datetime.now().isoformat()
+            }
+            
+            if transaction_external_id:
+                update_data["transaction_id"] = transaction_external_id
+                
+            response = supabase.table("payment_transactions").update(update_data).eq("id", transaction_id).execute()
+            
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error updating payment transaction: {str(e)}")
+            return None
+    
+    @staticmethod
+    def get_user_transactions(user_id, limit=10, offset=0):
+        """Get user's payment transactions"""
+        try:
+            response = supabase.table("payment_transactions").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit).offset(offset).execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Error getting user payment transactions: {str(e)}")
             return [] 

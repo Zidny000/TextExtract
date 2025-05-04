@@ -19,7 +19,7 @@ def get_profile():
         user.pop('password_hash', None)
         
         # Get today's request count
-        today_count = User.get_daily_request_count(user['id'])
+        today_count = User.get_monthly_request_count(user['id'])
         
         # Get user's devices
         devices = Device.get_user_devices(user['id'])
@@ -28,9 +28,9 @@ def get_profile():
         return jsonify({
             "user": user,
             "usage": {
-                "today_requests": today_count,
-                "remaining_requests": user.get('max_requests_per_day', 50) - today_count,
-                "plan_limit": user.get('max_requests_per_day', 50)
+                "monthly_requests": today_count,
+                "remaining_requests": user.get("max_requests_per_month", 20) - today_count,
+                "plan_limit": user.get("max_requests_per_month", 20)
             },
             "devices": devices
         }), 200

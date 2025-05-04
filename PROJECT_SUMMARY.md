@@ -80,9 +80,8 @@ The system follows a client-server architecture:
 ## Business Model
 
 This is a SaaS application with the following business model:
-- Free tier with limited OCR requests
-- Subscription model for premium features and higher usage limits
-- User account management through web portal
+- Free tier with 20 OCR requests
+- Basic tier with 200 ocr requests
 
 ## Development Environment
 
