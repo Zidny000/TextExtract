@@ -291,6 +291,8 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
                         
                         if parent_window is None:
                             root.destroy()
+
+                    copy_to_clipboard(text)
                     
                     return text
                 except Exception as e:

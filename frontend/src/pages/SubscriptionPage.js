@@ -43,7 +43,9 @@ const SubscriptionPage = () => {
         // Set auth token for PayPal service
         if (axiosAuth.defaults.headers.common['Authorization']) {
           const token = axiosAuth.defaults.headers.common['Authorization'].split(' ')[1];
+          const csrf_token = axiosAuth.defaults.headers.common['X-CSRF-TOKEN']
           PayPalService.setAuthToken(token);
+          PayPalService.setCsrfToken(csrf_token)
         }
 
         // Load subscription plans
@@ -317,7 +319,7 @@ const SubscriptionPage = () => {
                     disabled={userPlan && userPlan.plan.name === plan.name}
                     onClick={() => handleUpgradeClick(plan.id, plan.name, plan.price)}
                   >
-                    {userPlan && userPlan.plan.name === plan.name ? 'Current Plan' : 'Upgrade'}
+                    {userPlan && userPlan.plan.name === plan.name ? 'Current Plan' : 'Purchase'}
                   </Button>
                 </CardActions>
               </Card>

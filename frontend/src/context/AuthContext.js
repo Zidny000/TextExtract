@@ -117,11 +117,20 @@ export const AuthProvider = ({ children }) => {
   };
 
   // Initialize auth state from local storage on component mount
-  useEffect(() => {
+  useEffect( () => {
     const storedToken = localStorage.getItem(TOKEN_KEY);
     const storedRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
     const storedUser = localStorage.getItem(USER_KEY);
     const storedCsrfToken = localStorage.getItem(CSRF_TOKEN_KEY);
+
+    // Set CSRF token or generate a new one
+    if (storedCsrfToken) {
+      setCsrfToken(storedCsrfToken);
+      axiosAuth.defaults.headers.common['X-CSRF-TOKEN'] = storedCsrfToken;
+    } else {
+      generateCsrfToken();
+    }
+
 
     if (storedToken && storedUser) {
       if (isTokenExpired(storedToken) && storedRefreshToken) {
@@ -132,18 +141,16 @@ export const AuthProvider = ({ children }) => {
         // Set default Authorization header for all requests
         axiosAuth.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
       }
+
+      const fetchUserData = async () => {
+        const resopnse = await axiosAuth.get('/users/profile');
+        setUser(resopnse.data.user);
+      }
+
+      fetchUserData()
       
-      setUser(JSON.parse(storedUser));
     }
     
-    // Set CSRF token or generate a new one
-    if (storedCsrfToken) {
-      setCsrfToken(storedCsrfToken);
-      axiosAuth.defaults.headers.common['X-CSRF-TOKEN'] = storedCsrfToken;
-    } else {
-      generateCsrfToken();
-    }
-
     setLoading(false);
     
     // Return cleanup function

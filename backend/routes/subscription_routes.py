@@ -2,6 +2,7 @@ import logging
 import json
 import uuid
 from flask import Blueprint, request, jsonify, g
+from database.db import supabase
 from database.models import User, SubscriptionPlan, PaymentTransaction
 from auth import login_required
 import datetime
@@ -135,6 +136,7 @@ def initiate_upgrade():
 def complete_payment():
     """Complete the payment process (dummy implementation)"""
     try:
+        
         data = request.json
         if not data or "transaction_id" not in data:
             return jsonify({"error": "Transaction ID is required"}), 400
@@ -143,8 +145,9 @@ def complete_payment():
         paypal_order_id = data.get("paypal_order_id", f"DUMMY-{uuid.uuid4()}")
         
         # Get the transaction
-        response = g.supabase.table("payment_transactions").select("*").eq("id", transaction_id).execute()
-        
+        response = supabase.table("payment_transactions").select("*").eq("id", transaction_id).execute()
+        print("gasdgasdgasgdasdgasdgasdg")
+        print(response)
         if len(response.data) == 0:
             return jsonify({"error": "Transaction not found"}), 404
             
@@ -152,7 +155,7 @@ def complete_payment():
         
         # Get the plan
         plan = SubscriptionPlan.get_by_id(transaction["plan_id"])
-        
+        print(plan)
         if not plan:
             return jsonify({"error": "Plan not found"}), 404
         

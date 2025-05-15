@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { useAuth } from '../context/AuthContext';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
@@ -57,6 +58,10 @@ class PayPalService {
   // Set the authentication token for API requests
   setAuthToken(token) {
     this.axiosInstance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+  }
+
+  setCsrfToken(token) {
+    this.axiosInstance.defaults.headers.common['X-CSRF-TOKEN'] = token
   }
 
   // Initialize PayPal client

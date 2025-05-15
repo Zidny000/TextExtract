@@ -32,7 +32,6 @@ const ProfilePage = () => {
       try {
         setError('');
         const response = await axiosAuth.get('/users/profile');
-        console.log(response.data);
         if (response.data && response.data.usage) {
           setUsageStats(response.data.usage);
         } else {
