@@ -49,13 +49,13 @@ function Login() {
       });
     }
     console.log('isAuthenticated', isAuthenticated())
-    if(isAuthenticated() && isDesktopAuth) {
+    if(isAuthenticated() && isDesktopAuth && user) {
       alreadyLoggedIn();
     }
     if(isAuthenticated() && !isDesktopAuth) {
       navigate(from, { replace: true });
     }
-  }, [location,loading]);
+  }, [location,loading,user]);
 
 
   const alreadyLoggedIn = async () => {

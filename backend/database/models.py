@@ -40,7 +40,18 @@ class User:
             }).execute()
             
             if len(response.data) > 0:
-                return response.data[0]
+                user = response.data[0]
+                
+                # Create free subscription entry if successful
+                if plan:
+                    Subscription.create(
+                        user_id=user["id"],
+                        plan_id=plan["id"],
+                        status="active",
+                        start_date=datetime.datetime.now().isoformat()
+                    )
+                
+                return user
             return None
             
         except Exception as e:
@@ -168,6 +179,7 @@ class User:
                 end_date = datetime.datetime.now() + datetime.timedelta(days=30)
                 subscription_end = end_date.isoformat()
             
+            # First update the user's plan_type and related fields
             update_data = {
                 "plan_type": plan_type,
                 "max_requests_per_month": plan.get("max_requests_per_month", 20),
@@ -175,24 +187,31 @@ class User:
                 "updated_at": datetime.datetime.now().isoformat()
             }
             
-            if subscription_id:
-                update_data["subscription_id"] = subscription_id
-                
-            if subscription_start:
-                update_data["subscription_start_date"] = subscription_start
-                
-            if subscription_end:
-                update_data["subscription_end_date"] = subscription_end
-            
             response = supabase.table("users").update(update_data).eq("id", user_id).execute()
             
-            if len(response.data) > 0:
+            if len(response.data) == 0:
+                logger.error(f"User with ID {user_id} not found")
+                return None
+            
+            # Create or update subscription entry
+            subscription = Subscription.create(
+                user_id=user_id,
+                plan_id=plan["id"],
+                status="active" if plan_type != "free" else "free_tier",
+                start_date=subscription_start,
+                end_date=subscription_end if subscription_end else None,
+                renewal_date=subscription_end if subscription_end else None,
+                external_subscription_id=subscription_id if subscription_id else None
+            )
+            
+            if subscription:
                 return response.data[0]
             return None
+            
         except Exception as e:
             logger.error(f"Error updating user subscription: {str(e)}")
             return None
-            
+    
     @staticmethod
     def get_device_count(user_id):
         """Get the number of devices registered for a user"""
@@ -395,6 +414,152 @@ class Device:
             return [] 
 
 
+class Subscription:
+    """Model for user subscriptions"""
+    
+    @staticmethod
+    def create(user_id, plan_id, status="active", start_date=None, end_date=None, renewal_date=None, external_subscription_id=None):
+        """Create a new subscription record"""
+        try:
+            # Set defaults
+            if start_date is None:
+                start_date = datetime.datetime.now().isoformat()
+            
+            now = datetime.datetime.now()
+            
+            # For non-free plans, set default end and renewal dates if not provided
+            is_free_plan = False
+            plan = SubscriptionPlan.get_by_id(plan_id)
+            if plan and plan.get("price", 0) == 0:
+                is_free_plan = True
+                
+            if end_date is None and not is_free_plan:
+                # Default to 1 month subscription
+                end_date = (now + datetime.timedelta(days=30)).isoformat()
+            
+            if renewal_date is None and not is_free_plan:
+                renewal_date = end_date
+            
+            # Check if there's an existing active subscription for this user
+            current_sub = Subscription.get_active_subscription(user_id)
+            if current_sub:
+                # If upgrading to the same plan, just extend dates
+                if current_sub["plan_id"] == plan_id and not is_free_plan:
+                    update_data = {
+                        "status": status,
+                        "updated_at": now.isoformat()
+                    }
+                    
+                    if end_date:
+                        update_data["end_date"] = end_date
+                    
+                    if renewal_date:
+                        update_data["renewal_date"] = renewal_date
+                    
+                    if external_subscription_id:
+                        update_data["external_subscription_id"] = external_subscription_id
+                    
+                    response = supabase.table("subscriptions").update(update_data).eq("id", current_sub["id"]).execute()
+                    if len(response.data) > 0:
+                        return response.data[0]
+                else:
+                    # If switching plans, cancel the current subscription
+                    Subscription.cancel_subscription(current_sub["id"])
+            
+            # Create a new subscription
+            subscription_data = {
+                "user_id": user_id,
+                "plan_id": plan_id,
+                "status": status,
+                "start_date": start_date,
+                "created_at": now.isoformat(),
+                "updated_at": now.isoformat()
+            }
+            
+            if end_date:
+                subscription_data["end_date"] = end_date
+            
+            if renewal_date:
+                subscription_data["renewal_date"] = renewal_date
+            
+            if external_subscription_id:
+                subscription_data["external_subscription_id"] = external_subscription_id
+            
+            response = supabase.table("subscriptions").insert(subscription_data).execute()
+            
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error creating subscription: {str(e)}")
+            return None
+    
+    @staticmethod
+    def get_active_subscription(user_id):
+        """Get the active subscription for a user"""
+        try:
+            response = supabase.table("subscriptions").select("*").eq("user_id", user_id).eq("status", "active").execute()
+            
+            if len(response.data) > 0:
+                return response.data[0]
+            
+            # Also check for free tier subscription
+            response = supabase.table("subscriptions").select("*").eq("user_id", user_id).eq("status", "free_tier").execute()
+            
+            if len(response.data) > 0:
+                return response.data[0]
+                
+            return None
+        except Exception as e:
+            logger.error(f"Error getting active subscription: {str(e)}")
+            return None
+    
+    @staticmethod
+    def cancel_subscription(subscription_id):
+        """Cancel a subscription"""
+        try:
+            update_data = {
+                "status": "cancelled",
+                "updated_at": datetime.datetime.now().isoformat()
+            }
+            
+            response = supabase.table("subscriptions").update(update_data).eq("id", subscription_id).execute()
+            
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error cancelling subscription: {str(e)}")
+            return None
+    
+    @staticmethod
+    def get_user_subscription_details(user_id):
+        """Get detailed subscription information for a user including plan details"""
+        try:
+            # Get active subscription
+            subscription = Subscription.get_active_subscription(user_id)
+            
+            if not subscription:
+                # Default to free plan if no active subscription
+                free_plan = SubscriptionPlan.get_by_name("free")
+                return {
+                    "subscription": None,
+                    "plan": free_plan
+                }
+            
+            # Get plan details
+            plan = SubscriptionPlan.get_by_id(subscription["plan_id"])
+            
+            return {
+                "subscription": subscription,
+                "plan": plan
+            }
+        except Exception as e:
+            logger.error(f"Error getting user subscription details: {str(e)}")
+            return None
+
+
 class SubscriptionPlan:
     """Model for subscription plans"""
     
@@ -498,4 +663,4 @@ class PaymentTransaction:
             return response.data
         except Exception as e:
             logger.error(f"Error getting user payment transactions: {str(e)}")
-            return [] 
+            return []

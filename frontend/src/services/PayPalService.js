@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { useAuth } from '../context/AuthContext';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
@@ -152,4 +151,4 @@ class PayPalService {
   }
 }
 
-export default new PayPalService(); 
+export default new PayPalService();

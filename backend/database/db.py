@@ -32,7 +32,7 @@ def db_init():
     """
     try:
         # Check if tables exist by attempting to query them
-        tables_to_check = ["users", "api_requests", "devices", "usage_stats", "billing", "subscription_plans", "payment_transactions"]
+        tables_to_check = ["users", "api_requests", "devices", "usage_stats", "subscription_plans", "subscriptions", "payment_transactions"]
         tables_to_create = []
         
         for table in tables_to_check:

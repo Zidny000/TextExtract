@@ -157,17 +157,11 @@ const ProfilePage = () => {
                         secondary={usageStats?.plan_limit || "Loading..."}
                       />
                     </ListItem>
-                    <ListItem>
-                      <ListItemText 
-                        primary="Subscription Status" 
-                        secondary={user.subscription_end_date ? "Active" : "Free Tier"}
-                      />
-                    </ListItem>
-                    {user.subscription_end_date && (
+                    {usageStats?.renewal_date && (
                       <ListItem>
                         <ListItemText 
                           primary="Renewal Date" 
-                          secondary={new Date(user.subscription_end_date).toLocaleDateString()}
+                          secondary={new Date(usageStats.renewal_date).toLocaleDateString()}
                         />
                       </ListItem>
                     )}
@@ -213,4 +207,4 @@ const ProfilePage = () => {
   );
 };
 
-export default ProfilePage; 
+export default ProfilePage;

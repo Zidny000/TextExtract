@@ -3,7 +3,7 @@ import json
 import uuid
 from flask import Blueprint, request, jsonify, g
 from database.db import supabase
-from database.models import User, SubscriptionPlan, PaymentTransaction
+from database.models import User, SubscriptionPlan, PaymentTransaction, Subscription
 from auth import login_required
 import datetime
 
@@ -27,19 +27,22 @@ def get_user_plan():
     try:
         user = g.user
         
-        # Get the plan details
-        plan_type = user.get("plan_type", "free")
-        plan = SubscriptionPlan.get_by_name(plan_type)
-        
-        if not plan:
-            return jsonify({"error": f"Plan '{plan_type}' not found"}), 404
+        # Get subscription details including plan
+        sub_details = Subscription.get_user_subscription_details(user["id"])
+        if not sub_details or not sub_details.get("plan"):
+            return jsonify({"error": "Subscription details not found"}), 404
+            
+        plan = sub_details["plan"]
+        subscription = sub_details["subscription"]
         
         # Calculate subscription status
         subscription_status = "active"
-        subscription_end = user.get("subscription_end_date")
-        
-        if plan_type != "free" and subscription_end:
-            end_date = datetime.datetime.fromisoformat(subscription_end.replace("Z", "+00:00"))
+        if not subscription:
+            subscription_status = "free" if plan["name"] == "free" else "inactive"
+        elif subscription.get("status") == "cancelled":
+            subscription_status = "cancelled"
+        elif subscription.get("end_date"):
+            end_date = datetime.datetime.fromisoformat(subscription["end_date"].replace("Z", "+00:00"))
             if end_date < datetime.datetime.now(datetime.timezone.utc):
                 subscription_status = "expired"
         
@@ -59,8 +62,9 @@ def get_user_plan():
             "plan": plan,
             "usage": {
                 "status": subscription_status,
-                "start_date": user.get("subscription_start_date"),
-                "end_date": user.get("subscription_end_date"),
+                "start_date": subscription.get("start_date") if subscription else None,
+                "end_date": subscription.get("end_date") if subscription else None,
+                "renewal_date": subscription.get("renewal_date") if subscription else None,
                 "current_month": month_name,
                 "month_requests": month_count,
                 "max_requests": max_requests,
@@ -89,19 +93,27 @@ def initiate_upgrade():
         if not plan:
             return jsonify({"error": f"Plan with ID '{plan_id}' not found"}), 404
         
-        # For free plan, just update the user directly
+        # For free plan, just create the subscription directly
         if plan["price"] == 0:
-            updated_user = User.update_subscription(
-                g.user_id, 
-                plan["name"],
-                subscription_start=datetime.datetime.now().isoformat()
+            subscription = Subscription.create(
+                user_id=g.user_id,
+                plan_id=plan_id,
+                status="free_tier",
+                start_date=datetime.datetime.now().isoformat()
             )
             
-            if updated_user:
+            if subscription:
+                # Update the user record too
+                updated_user = User.update_subscription(
+                    g.user_id, 
+                    plan["name"]
+                )
+                
                 return jsonify({
                     "success": True,
                     "message": f"Successfully upgraded to {plan['name']} plan",
-                    "plan": plan
+                    "plan": plan,
+                    "subscription": subscription
                 }), 200
             else:
                 return jsonify({"error": "Failed to update subscription"}), 500
@@ -134,9 +146,8 @@ def initiate_upgrade():
 @subscription_routes.route('/complete-payment', methods=['POST'])
 @login_required
 def complete_payment():
-    """Complete the payment process (dummy implementation)"""
+    """Complete the payment process"""
     try:
-        
         data = request.json
         if not data or "transaction_id" not in data:
             return jsonify({"error": "Transaction ID is required"}), 400
@@ -146,8 +157,6 @@ def complete_payment():
         
         # Get the transaction
         response = supabase.table("payment_transactions").select("*").eq("id", transaction_id).execute()
-        print("gasdgasdgasgdasdgasdgasdg")
-        print(response)
         if len(response.data) == 0:
             return jsonify({"error": "Transaction not found"}), 404
             
@@ -155,7 +164,6 @@ def complete_payment():
         
         # Get the plan
         plan = SubscriptionPlan.get_by_id(transaction["plan_id"])
-        print(plan)
         if not plan:
             return jsonify({"error": "Plan not found"}), 404
         
@@ -169,20 +177,32 @@ def complete_payment():
         if not updated_transaction:
             return jsonify({"error": "Failed to update transaction status"}), 500
         
-        # Update user subscription
+        # Calculate subscription dates
         subscription_start = datetime.datetime.now().isoformat()
         subscription_end = (datetime.datetime.now() + datetime.timedelta(days=30)).isoformat()
         
+        # Create or update subscription
+        subscription = Subscription.create(
+            user_id=g.user_id,
+            plan_id=plan["id"],
+            status="active",
+            start_date=subscription_start,
+            end_date=subscription_end,
+            renewal_date=subscription_end,
+            external_subscription_id=paypal_order_id
+        )
+        
+        if not subscription:
+            return jsonify({"error": "Failed to create or update subscription"}), 500
+        
+        # Update user record with new plan type
         updated_user = User.update_subscription(
             g.user_id,
-            plan["name"],
-            subscription_id=paypal_order_id,
-            subscription_start=subscription_start,
-            subscription_end=subscription_end
+            plan["name"]
         )
         
         if not updated_user:
-            return jsonify({"error": "Failed to update subscription"}), 500
+            return jsonify({"error": "Failed to update user record"}), 500
         
         return jsonify({
             "success": True,
@@ -230,23 +250,33 @@ def get_transactions():
 def cancel_subscription():
     """Cancel the current subscription"""
     try:
-        user = g.user
+        # Get the active subscription
+        subscription = Subscription.get_active_subscription(g.user_id)
         
-        # Only process if user is on a paid plan
-        if user.get("plan_type", "free") == "free":
+        if not subscription or subscription.get("status") == "free_tier":
             return jsonify({"error": "No active paid subscription to cancel"}), 400
         
+        # Cancel the subscription
+        cancelled_sub = Subscription.cancel_subscription(subscription["id"])
+
+        print(f"Cancelled subscription: {cancelled_sub}")
+        
+        if not cancelled_sub:
+            return jsonify({"error": "Failed to cancel subscription"}), 500
+        
         # Downgrade to free plan
+        plan = SubscriptionPlan.get_by_name("free")
+        if not plan:
+            return jsonify({"error": "Free plan not found"}), 500
+        
+        # Update user record to free plan
         updated_user = User.update_subscription(
             g.user_id,
-            "free",
-            subscription_id=None,
-            subscription_start=None,
-            subscription_end=None
+            "free"
         )
         
         if not updated_user:
-            return jsonify({"error": "Failed to cancel subscription"}), 500
+            return jsonify({"error": "Failed to update user record"}), 500
         
         return jsonify({
             "success": True,
@@ -255,4 +285,4 @@ def cancel_subscription():
         
     except Exception as e:
         logger.error(f"Error cancelling subscription: {str(e)}")
-        return jsonify({"error": "Failed to cancel subscription"}), 500 
+        return jsonify({"error": "Failed to cancel subscription"}), 500

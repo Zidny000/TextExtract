@@ -246,6 +246,14 @@ const SubscriptionPage = () => {
                       secondary={`${userPlan.usage.device_count} / ${userPlan.usage.device_limit}`} 
                     />
                   </ListItem>
+                  {userPlan.usage.renewal_date && (
+                    <ListItem>
+                      <ListItemText 
+                        primary="Next Renewal" 
+                        secondary={new Date(userPlan.usage.renewal_date).toLocaleDateString()} 
+                      />
+                    </ListItem>
+                  )}
                 </List>
               </Grid>
             </Grid>
@@ -365,4 +373,4 @@ const SubscriptionPage = () => {
   );
 };
 
-export default SubscriptionPage; 
+export default SubscriptionPage;

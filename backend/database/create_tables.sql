@@ -9,9 +9,6 @@ CREATE TABLE IF NOT EXISTS users (
     last_login TIMESTAMP WITH TIME ZONE,
     status VARCHAR(50) DEFAULT 'active',
     plan_type VARCHAR(50) DEFAULT 'free',
-    subscription_id VARCHAR(255),
-    subscription_start_date TIMESTAMP WITH TIME ZONE,
-    subscription_end_date TIMESTAMP WITH TIME ZONE,
     max_requests_per_month INTEGER DEFAULT 20,
     email_verified BOOLEAN DEFAULT FALSE,
     device_limit INTEGER DEFAULT 2
@@ -78,20 +75,19 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
     status VARCHAR(20) DEFAULT 'active'
 );
 
--- Create billing table
-CREATE TABLE IF NOT EXISTS billing (
+-- Create subscriptions table
+CREATE TABLE IF NOT EXISTS subscriptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES users(id),
-    transaction_id VARCHAR(255),
-    amount DECIMAL(10, 2) NOT NULL,
-    currency VARCHAR(3) DEFAULT 'USD',
-    status VARCHAR(50) DEFAULT 'pending',
-    payment_method VARCHAR(50),
+    plan_id UUID REFERENCES subscription_plans(id),
+    status VARCHAR(20) DEFAULT 'active', -- e.g., active, cancelled, past_due
+    start_date TIMESTAMP WITH TIME ZONE NOT NULL,
+    end_date TIMESTAMP WITH TIME ZONE,
+    renewal_date TIMESTAMP WITH TIME ZONE,
+    external_subscription_id VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    payment_date TIMESTAMP WITH TIME ZONE,
-    billing_period_start DATE,
-    billing_period_end DATE,
-    invoice_url TEXT
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, plan_id, start_date) -- Optional but useful
 );
 
 -- Create payment_transactions table
@@ -115,9 +111,9 @@ ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE devices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE usage_stats ENABLE ROW LEVEL SECURITY;
-ALTER TABLE billing ENABLE ROW LEVEL SECURITY;
 ALTER TABLE subscription_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payment_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY;
 
 -- Create a policy to allow authenticated users to access their own data
 CREATE POLICY users_policy ON users
@@ -131,9 +127,6 @@ CREATE POLICY devices_policy ON devices
     
 CREATE POLICY usage_stats_policy ON usage_stats
     FOR ALL USING (auth.uid() = user_id);
-    
-CREATE POLICY billing_policy ON billing
-    FOR ALL USING (auth.uid() = user_id);
 
 -- Create policy for subscription_plans (public read access)
 CREATE POLICY subscription_plans_policy ON subscription_plans
@@ -143,9 +136,13 @@ CREATE POLICY subscription_plans_policy ON subscription_plans
 CREATE POLICY payment_transactions_policy ON payment_transactions
     FOR ALL USING (auth.uid() = user_id);
 
+-- Create policy for subscriptions
+CREATE POLICY subscriptions_policy ON subscriptions
+    FOR ALL USING (auth.uid() = user_id);
+
 -- Insert default subscription plans
 INSERT INTO subscription_plans (name, description, price, currency, max_requests_per_month, device_limit, interval)
 VALUES 
 ('free', 'Free tier with 20 OCR requests per month', 0.00, 'USD', 20, 2, 'month'),
 ('basic', 'Basic tier with 200 OCR requests per month', 9.99, 'USD', 200, 5, 'month')
-ON CONFLICT DO NOTHING; 
+ON CONFLICT DO NOTHING;
