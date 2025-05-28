@@ -15,6 +15,8 @@ import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicOnlyRoute from './components/PublicOnlyRoute';
 import SubscriptionPage from './pages/SubscriptionPage';
+import SubscriptionSuccess from './pages/SubscriptionSuccess';
+import SubscriptionCancel from './pages/SubscriptionCancel';
 
 const theme = createTheme({
   palette: {
@@ -84,6 +86,20 @@ function App() {
             path="/subscription" 
             element={
               <SubscriptionPage />
+            } 
+          />
+          <Route 
+            path="/subscription/success" 
+            element={
+              <ProtectedRoute>
+                <SubscriptionSuccess />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/subscription/cancel" 
+            element={
+              <SubscriptionCancel />
             } 
           />
           

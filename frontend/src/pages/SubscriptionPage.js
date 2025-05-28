@@ -1,51 +1,109 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Container, Box, Typography, Paper, Button, Grid, Divider,
   Alert, CircularProgress, Card, CardContent, CardActions,
   List, ListItem, ListItemText, ListItemIcon, Dialog, DialogTitle,
-  DialogContent, DialogContentText, DialogActions
+  DialogContent, DialogContentText, DialogActions, ToggleButtonGroup,
+  ToggleButton, Snackbar, IconButton
 } from '@mui/material';
-import { CheckCircle as CheckIcon, ArrowForward as ArrowIcon } from '@mui/icons-material';
+import { CheckCircle as CheckIcon, ArrowForward as ArrowIcon,
+         CreditCard as CreditCardIcon, Close as CloseIcon } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import PayPalService from '../services/PayPalService';
+import StripeService from '../services/StripeService';
 
 const SubscriptionPage = () => {
   const { user, axiosAuth } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [plans, setPlans] = useState([]);
   const [userPlan, setUserPlan] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [upgradeStatus, setUpgradeStatus] = useState({ loading: false, success: false, error: '' });
   const [activeDialog, setActiveDialog] = useState({ open: false, planId: null, planName: '', price: 0 });
-
-  // Initialize PayPal on component mount
+  const [paymentMethod, setPaymentMethod] = useState('paypal');
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });  // Initialize payment services on component mount
   useEffect(() => {
-    const initPayPal = async () => {
+    const initPaymentSystems = async () => {
       try {
+        // Initialize PayPal
         await PayPalService.initialize();
+        
+        // Set up Stripe
+        if (axiosAuth.defaults.headers.common['Authorization']) {
+          const token = axiosAuth.defaults.headers.common['Authorization'].split(' ')[1];
+          const csrf_token = axiosAuth.defaults.headers.common['X-CSRF-TOKEN'];
+          StripeService.setAuthToken(token);
+          StripeService.setCsrfToken(csrf_token);
+        }
       } catch (error) {
-        console.error('Error initializing PayPal:', error);
-        setError('Failed to initialize payment system');
+        console.error('Error initializing payment systems:', error);
+        setError('Failed to initialize payment systems');
       }
     };
 
-    initPayPal();
-  }, []);
-
+    initPaymentSystems();
+  }, [axiosAuth.defaults.headers.common]);
+  
+  // Handle Stripe payment success
+  useEffect(() => {
+    // Check for Stripe payment success query parameters
+    const query = new URLSearchParams(location.search);
+    const sessionId = query.get('session_id');
+    const transactionId = query.get('transaction_id');
+    
+    if (sessionId && transactionId && user) {
+      const verifyStripePayment = async () => {
+        try {
+          setLoading(true);
+          const verificationResult = await StripeService.verifyPayment(sessionId, transactionId);
+          
+          if (verificationResult.success) {
+            // Refresh user plan
+            const userPlanData = await PayPalService.getUserPlan();
+            setUserPlan(userPlanData);
+            
+            // Show success message
+            setSnackbar({
+              open: true, 
+              message: 'Payment successful! Your subscription has been updated.',
+              severity: 'success'
+            });
+            
+            // Clean up URL
+            window.history.replaceState({}, document.title, '/subscription');
+          }
+        } catch (error) {
+          console.error('Error verifying Stripe payment:', error);
+          setSnackbar({
+            open: true, 
+            message: 'Failed to verify payment. Please contact support.',
+            severity: 'error'
+          });
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      verifyStripePayment();
+    }
+  }, [location.search, user]);
   // Load subscription plans and user plan
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
       setError('');
       try {
-        // Set auth token for PayPal service
+        // Set auth tokens for services
         if (axiosAuth.defaults.headers.common['Authorization']) {
           const token = axiosAuth.defaults.headers.common['Authorization'].split(' ')[1];
           const csrf_token = axiosAuth.defaults.headers.common['X-CSRF-TOKEN']
           PayPalService.setAuthToken(token);
-          PayPalService.setCsrfToken(csrf_token)
+          PayPalService.setCsrfToken(csrf_token);
+          StripeService.setAuthToken(token);
+          StripeService.setCsrfToken(csrf_token);
         }
 
         // Load subscription plans
@@ -80,6 +138,32 @@ const SubscriptionPage = () => {
   const handleDialogClose = () => {
     setActiveDialog({ ...activeDialog, open: false });
   };
+  const handlePaymentMethodChange = (event, newValue) => {
+    if (newValue !== null) {
+      setPaymentMethod(newValue);
+    }
+  };
+
+  const handleStripeCheckout = async (upgradeResponse) => {
+    try {
+      // Create Stripe checkout session
+      const checkoutResponse = await StripeService.createCheckoutSession(upgradeResponse.transaction_id);
+      
+      if (checkoutResponse.success) {
+        // Redirect to Stripe checkout
+        StripeService.redirectToCheckout(checkoutResponse.checkout_url);
+      } else {
+        throw new Error('Failed to create Stripe checkout session');
+      }
+    } catch (error) {
+      console.error('Stripe checkout error:', error);
+      setUpgradeStatus({
+        loading: false,
+        success: false,
+        error: 'Failed to redirect to payment page. Please try again.'
+      });
+    }
+  };
 
   const handleUpgradeConfirm = async () => {
     setUpgradeStatus({ loading: true, success: false, error: '' });
@@ -105,24 +189,31 @@ const SubscriptionPage = () => {
         return;
       }
       
-      // For paid plans, process the payment
-      const paymentResponse = await PayPalService.processPayment(
-        upgradeResponse.transaction_id,
-        upgradeResponse.amount,
-        upgradeResponse.currency
-      );
-      
-      // Update status
-      setUpgradeStatus({
-        loading: false,
-        success: true,
-        error: ''
-      });
-      
-      // Close the dialog
-      setActiveDialog({ ...activeDialog, open: false });
-      
-      // Reload user plan
+      // Process payment based on selected payment method
+      if (paymentMethod === 'stripe') {
+        await handleStripeCheckout(upgradeResponse);
+      } else {
+        // For PayPal
+        const paymentResponse = await PayPalService.processPayment(
+          upgradeResponse.transaction_id,
+          upgradeResponse.amount,
+          upgradeResponse.currency
+        );
+        
+        // Update status
+        setUpgradeStatus({
+          loading: false,
+          success: true,
+          error: ''
+        });
+        
+        // Close the dialog
+        setActiveDialog({ ...activeDialog, open: false });
+        
+        // Reload user plan
+
+        
+      }
       const userPlanData = await PayPalService.getUserPlan();
       setUserPlan(userPlanData);
       
@@ -333,19 +424,16 @@ const SubscriptionPage = () => {
               </Card>
             </Grid>
           ))}
-        </Grid>
-
-        {/* Upgrade Confirmation Dialog */}
-        <Dialog open={activeDialog.open} onClose={handleDialogClose}>
+        </Grid>        {/* Upgrade Confirmation Dialog */}
+        <Dialog open={activeDialog.open} onClose={handleDialogClose} maxWidth="sm" fullWidth>
           <DialogTitle>
             Upgrade to {activeDialog.planName.toUpperCase()}
           </DialogTitle>
           <DialogContent>
-            <DialogContentText>
+            <DialogContentText gutterBottom>
               {activeDialog.price > 0 ? (
                 <>
                   You are about to upgrade to the {activeDialog.planName.toUpperCase()} plan for ${activeDialog.price.toFixed(2)}/month.
-                  Your payment will be processed through PayPal.
                 </>
               ) : (
                 <>
@@ -353,6 +441,38 @@ const SubscriptionPage = () => {
                 </>
               )}
             </DialogContentText>
+            
+            {activeDialog.price > 0 && (
+              <Box sx={{ mt: 3, mb: 2 }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Select Payment Method:
+                </Typography>
+                <ToggleButtonGroup
+                  value={paymentMethod}
+                  exclusive
+                  onChange={handlePaymentMethodChange}
+                  aria-label="payment method"
+                  sx={{ width: '100%', mt: 1 }}
+                >
+                  <ToggleButton value="paypal" aria-label="PayPal" sx={{ width: '50%' }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <img 
+                        src="https://www.paypalobjects.com/webstatic/mktg/logo/pp_cc_mark_37x23.jpg" 
+                        alt="PayPal" 
+                        style={{ height: 30, marginBottom: 8 }} 
+                      />
+                      <Typography variant="body2">PayPal</Typography>
+                    </Box>
+                  </ToggleButton>
+                  <ToggleButton value="stripe" aria-label="Credit Card" sx={{ width: '50%' }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <CreditCardIcon sx={{ fontSize: 30, mb: 1 }} />
+                      <Typography variant="body2">Credit Card</Typography>
+                    </Box>
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+            )}
           </DialogContent>
           <DialogActions>
             <Button onClick={handleDialogClose} disabled={upgradeStatus.loading}>
@@ -361,13 +481,30 @@ const SubscriptionPage = () => {
             <Button 
               onClick={handleUpgradeConfirm}
               color="primary"
+              variant="contained"
               disabled={upgradeStatus.loading}
               endIcon={upgradeStatus.loading ? <CircularProgress size={16} /> : null}
             >
-              Confirm
+              {activeDialog.price > 0 ? 'Proceed to Payment' : 'Confirm'}
             </Button>
-          </DialogActions>
-        </Dialog>
+          </DialogActions>        </Dialog>
+
+        {/* Notifications */}
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={6000}
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
+          message={snackbar.message}
+          action={
+            <IconButton
+              size="small"
+              color="inherit"
+              onClick={() => setSnackbar({ ...snackbar, open: false })}
+            >
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          }
+        />
       </Box>
     </Container>
   );

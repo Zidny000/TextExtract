@@ -633,9 +633,8 @@ class PaymentTransaction:
         except Exception as e:
             logger.error(f"Error creating payment transaction: {str(e)}")
             return None
-    
     @staticmethod
-    def update_status(transaction_id, status, transaction_external_id=None):
+    def update_status(transaction_id, status, transaction_external_id=None, payment_provider=None):
         """Update status of a payment transaction"""
         try:
             update_data = {
@@ -645,6 +644,9 @@ class PaymentTransaction:
             
             if transaction_external_id:
                 update_data["transaction_id"] = transaction_external_id
+                
+            if payment_provider:
+                update_data["payment_provider"] = payment_provider
                 
             response = supabase.table("payment_transactions").update(update_data).eq("id", transaction_id).execute()
             

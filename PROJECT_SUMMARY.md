@@ -38,13 +38,19 @@ The backend server provides API services for:
   - `auth_routes.py`: User registration, login, token management
   - `user_routes.py`: User profile management
   - `api_routes.py`: OCR and core service endpoints
+  - `subscription_routes.py`: Subscription and plan management
+  - `stripe_routes.py`: Stripe payment processing
 - `database/`: Database models and connection handling
+- `payment/`: Payment processing modules
+  - `stripe_client.py`: Stripe API integration
 
 Technologies:
 - Flask web framework
 - Supabase for database
 - Together.ai for OCR processing
 - JWT for authentication
+- Stripe for payment processing
+- PayPal for payment processing
 
 ## 3. Frontend Web Application (frontend/)
 
@@ -80,8 +86,20 @@ The system follows a client-server architecture:
 ## Business Model
 
 This is a SaaS application with the following business model:
-- Free tier with 20 OCR requests
-- Basic tier with 200 ocr requests
+- Free tier with 20 OCR requests per month
+- Basic tier with 200 OCR requests per month
+
+## Payment Processing
+
+The application supports multiple payment processors:
+1. **Stripe Integration**:
+   - Credit card payments using Stripe Checkout
+   - Secure webhook processing for payment confirmations
+   - Complete subscription management
+
+2. **PayPal Integration**:
+   - PayPal account payments
+   - Direct payment processing
 
 ## Development Environment
 
