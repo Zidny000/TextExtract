@@ -40,36 +40,65 @@ const LandingPage = () => {
         )}
       </Box>
 
-      <Grid container spacing={4} sx={{ mt: 4 }}>
-        <Grid item xs={12} md={4}>
+      <Grid container  spacing={6} sx={{ my: 4 }} justifyContent="center">
+        <Grid item size={10}>
           <Paper elevation={3} sx={{ p: 3, height: '100%' }}>
             <Typography variant="h5" gutterBottom>
-              Easy to Use
+              Extract Text From Anywhere on Your Screen
             </Typography>
             <Typography>
-              Simply upload your documents and let TextExtract do the work. Our advanced OCR technology
-              ensures accurate text extraction every time.
+              Simply select an area on your screen and TextExtract instantly copies all visible text to your clipboard.
             </Typography>
           </Paper>
         </Grid>
-        <Grid item xs={12} md={4}>
+        <Grid item size={10}>
           <Paper elevation={3} sx={{ p: 3, height: '100%' }}>
             <Typography variant="h5" gutterBottom>
-              Multiple Formats
+              Copy to Clipboard Instantly
             </Typography>
             <Typography>
-              Support for various document formats including PDF, images, and more. Extract text from
-              any document with ease.
+              No need to click “copy”—TextExtract puts extracted text right into your clipboard, ready to paste.
             </Typography>
           </Paper>
         </Grid>
-        <Grid item xs={12} md={4}>
+        <Grid item size={10}>
+          <Paper elevation={3} sx={{ p: 3, height: '100%' }}>
+            <Typography variant="h5" gutterBottom>
+              Supports Multiple Languages
+            </Typography>
+            <Typography>
+              TextExtract is built with multilingual OCR capabilities—perfect for users around the world.
+            </Typography>
+          </Paper>
+        </Grid>
+        <Grid item size={10}>
+          <Paper elevation={3} sx={{ p: 3, height: '100%' }}>
+            <Typography variant="h5" gutterBottom>
+              Accurate and Fast OCR with AI
+            </Typography>
+            <Typography>
+              Powered by advanced AI technology for quick and reliable text extraction from images, PDFs, or apps.
+            </Typography>
+          </Paper>
+        </Grid>
+        <Grid item size={10}>
+          <Paper elevation={3} sx={{ p: 3, height: '100%' }}>
+            <Typography variant="h5" gutterBottom>
+              Multi-Monitor Support
+            </Typography>
+            <Typography>
+              Using more than one screen? Easily choose which monitor to capture from within the app.
+            </Typography>
+          </Paper>
+        </Grid>
+        
+        <Grid item size={10}>
           <Paper elevation={3} sx={{ p: 3, height: '100%' }}>
             <Typography variant="h5" gutterBottom>
               Secure & Private
             </Typography>
             <Typography>
-              Your documents are processed securely and never stored longer than necessary. Your privacy
+              Your data is processed securely and never get stored in the system. Your privacy
               is our top priority.
             </Typography>
           </Paper>
