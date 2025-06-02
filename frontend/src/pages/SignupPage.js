@@ -18,14 +18,20 @@ const SignupPage = () => {
   const [error, setError] = useState('');
   const { signup } = useAuth();
   const navigate = useNavigate();
-
+  const [successMessage, setSuccessMessage] = useState('');
+  
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setSuccessMessage('');
 
     const result = await signup(email, password, fullName);
     if (result.success) {
-      navigate('/profile');
+      setSuccessMessage(result.message || 'Please check your email to complete registration');
+      // Clear the form
+      setEmail('');
+      setPassword('');
+      setFullName('');
     } else {
       setError(result.error);
     }
@@ -43,10 +49,14 @@ const SignupPage = () => {
       >
         <Typography component="h1" variant="h5">
           Create your TextExtract account
-        </Typography>
-        {error && (
+        </Typography>        {error && (
           <Alert severity="error" sx={{ mt: 2, width: '100%' }}>
             {error}
+          </Alert>
+        )}
+        {successMessage && (
+          <Alert severity="success" sx={{ mt: 2, width: '100%' }}>
+            {successMessage}
           </Alert>
         )}
         <Box component="form" onSubmit={handleSubmit} sx={{ mt: 1 }}>

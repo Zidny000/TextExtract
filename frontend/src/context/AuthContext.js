@@ -164,7 +164,6 @@ export const AuthProvider = ({ children }) => {
     setupInterceptors();
   }, [token, refreshToken, setupInterceptors]);
 
-
   const signup = async (email, password, fullName) => {
     try {
       const response = await axios.post(`${API_URL}/auth/register`, {
@@ -172,19 +171,13 @@ export const AuthProvider = ({ children }) => {
         password,
         full_name: fullName,
       });
-      const { token, refresh_token, user } = response.data;
-      // Save to state
-      setToken(token);
-      setRefreshToken(refresh_token);
-      setUser(user);
 
-      // Save to local storage
-      localStorage.setItem(TOKEN_KEY, token);
-      localStorage.setItem(REFRESH_TOKEN_KEY, refresh_token);
-      localStorage.setItem(USER_KEY, JSON.stringify(user));
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-
-      return { success: true };
+      // With the new flow, we just show a message to the user to check their email
+      // We don't get tokens or user data until after email verification
+      return { 
+        success: true, 
+        message: response.data.message || 'Please check your email to complete registration'
+      };
     } catch (error) {
       return { success: false, error: error.response?.data?.error || 'Signup failed' };
     }

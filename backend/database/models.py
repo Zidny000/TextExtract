@@ -26,8 +26,7 @@ class User:
             if plan:
                 max_requests = plan.get("max_requests_per_month", 20)
                 device_limit = plan.get("device_limit", 2)
-            
-            # Create user in Supabase
+              # Create user in Supabase
             response = supabase.table("users").insert({
                 "email": email,
                 "password_hash": password_hash,
@@ -35,6 +34,7 @@ class User:
                 "plan_type": plan_type,
                 "max_requests_per_month": max_requests,
                 "device_limit": device_limit,
+                "email_verified": True,  # User is verified when created
                 "created_at": datetime.datetime.now().isoformat(),
                 "updated_at": datetime.datetime.now().isoformat()
             }).execute()

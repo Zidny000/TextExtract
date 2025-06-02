@@ -35,6 +35,11 @@ SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "noreply@textextract.com")
 APP_URL = os.environ.get("APP_URL", "http://localhost:3000")
 AUTH_CALLBACK_PORT = os.environ.get("AUTH_CALLBACK_PORT", "9845")
 
+# Backend API URL for direct API access (for verification links, etc.)
+BACKEND_API_URL = os.environ.get("BACKEND_API_URL", "http://localhost:5000")
+logger.info(f"Frontend URL: {APP_URL}")
+logger.info(f"Backend API URL: {BACKEND_API_URL}")
+
 # Store verification and reset tokens temporarily (in production, these should be in a database)
 verification_tokens = {}  # {token: {'email': email, 'expires': datetime}}
 reset_tokens = {}  # {token: {'user_id': user_id, 'email': email, 'expires': datetime}}
@@ -178,67 +183,52 @@ def register():
             time.sleep(random.uniform(0.5, 1.5))
             return jsonify({"error": "Invalid email or password"}), 401
         
-        # Create the user
-        new_user = User.create(
-            email=data['email'],
-            password=data['password'],
-            full_name=data.get('full_name'),
-            plan_type=data.get('plan_type', 'free')
-        )
-        
-        if not new_user:
-            return jsonify({"error": "Failed to create user"}), 500
-        
-        # Extract device info
-        device_info = extract_device_info(request)
-        device_id = request.headers.get("X-Device-ID")
-        
-        # Generate tokens (access and refresh)
-        from auth import generate_token
-        access_token = generate_token(new_user['id'], new_user['email'], device_id)
-        refresh_token = generate_token(new_user['id'], new_user['email'], device_id, is_refresh=True)
-        
-        # Register device if identifier provided
-        if device_id:
-            Device.register(new_user['id'], device_id, device_info)
-        
-        # Send verification email
+        # Store registration info in verification tokens instead of creating user
         verification_token = generate_verification_token()
-        verification_tokens[verification_token] = {
-            'email': new_user['email'],
+        registration_data = {
+            'email': data['email'],
+            'password': data['password'],
+            'full_name': data.get('full_name'),
+            'plan_type': data.get('plan_type', 'free'),
+            'device_id': request.headers.get("X-Device-ID"),
+            'device_info': extract_device_info(request),
             'expires': datetime.now() + timedelta(hours=24)
         }
         
-        verification_url = f"{APP_URL}/auth/verify-email/{verification_token}"
+        verification_tokens[verification_token] = registration_data
+        
+        # Send verification email to backend API endpoint
+        backend_api_url = os.environ.get("BACKEND_API_URL", "http://localhost:5000")
+        verification_url = f"{backend_api_url}/auth/verify-email/{verification_token}"
         email_content = f"""
         <html>
             <body>
                 <h2>Welcome to TextExtract!</h2>
-                <p>Thank you for registering. Please click the link below to verify your email address:</p>
+                <p>Thank you for your interest in registering. Please click the link below to verify your email address and complete your registration:</p>
                 <p><a href="{verification_url}">Verify Email Address</a></p>
                 <p>If you didn't register for TextExtract, you can ignore this email.</p>
             </body>
         </html>
         """
         
-        send_email(
-            new_user['email'],
+        email_sent = send_email(
+            data['email'],
             "Verify Your TextExtract Email Address",
             email_content
         )
         
-        # Return user data and token (exclude password_hash)
-        new_user.pop('password_hash', None)
+        if not email_sent:
+            return jsonify({"error": "Failed to send verification email"}), 500
+        
+        # Return success without actual user data
         return jsonify({
-            "user": new_user,
-            "token": access_token,
-            "refresh_token": refresh_token,
+            "message": "Verification email sent. Please check your inbox to complete registration.",
             "verification_sent": True
-        }), 201
+        }), 200
         
     except Exception as e:
         logger.error(f"Error in register route: {str(e)}")
-        return jsonify({"error": "An error occurred during registration"}), 500
+        return jsonify({"error": "An error occurred during registration process"}), 500
 
 @auth_routes.route('/login', methods=['POST'])
 @limiter.limit("15 per minute")
@@ -511,68 +501,196 @@ def reset_password():
 
 @auth_routes.route('/verify-email/<token>', methods=['GET'])
 def verify_email(token):
-    """Verify a user's email address"""
+    """Verify a user's email address and create user account"""
     try:
+        logger.info(f"Email verification requested for token: {token[:10]}...")
+        
+        # Check available tokens for debugging
+        available_tokens = list(verification_tokens.keys())
+        token_preview = [t[:10] + '...' for t in available_tokens]
+        logger.info(f"Available verification tokens: {token_preview}")
+        
         # Verify token exists and is valid
         if token not in verification_tokens:
-            return jsonify({"error": "Invalid or expired verification link"}), 400
+            logger.warning(f"Invalid verification token: {token[:10]}...")
+            return """
+            <html>
+                <head>
+                    <title>Invalid Verification Link</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
+                        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                        h1 { color: #f44336; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>Invalid or Expired Link</h1>
+                        <p>This verification link is invalid or has expired. Please request a new one.</p>
+                    </div>
+                </body>
+            </html>
+            """
         
-        token_data = verification_tokens[token]
+        registration_data = verification_tokens[token]
+        logger.info(f"Found registration data for email: {registration_data.get('email')}")
         
         # Check if token is expired
-        if datetime.now() > token_data['expires']:
+        if datetime.now() > registration_data['expires']:
+            logger.warning(f"Expired verification token for email: {registration_data.get('email')}")
             # Remove expired token
             verification_tokens.pop(token)
-            return jsonify({"error": "Verification link has expired"}), 400
+            return """
+            <html>
+                <head>
+                    <title>Expired Verification Link</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
+                        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                        h1 { color: #f44336; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>Link Expired</h1>
+                        <p>This verification link has expired. Please register again to receive a new link.</p>
+                    </div>
+                </body>
+            </html>
+            """
         
-        email = token_data['email']
+        # Check if the email already exists (another user might have registered with this email)
+        existing_user = User.get_by_email(registration_data['email'])
+        if existing_user:
+            logger.warning(f"Email already registered during verification: {registration_data['email']}")
+            verification_tokens.pop(token)
+            return """
+            <html>
+                <head>
+                    <title>Email Already Registered</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
+                        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                        h1 { color: #f44336; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>Email Already Registered</h1>
+                        <p>This email address is already registered. Please log in or use a different email.</p>
+                    </div>
+                </body>
+            </html>
+            """
         
-        # Update user's verification status in database
-        from database.db import supabase
+        # Create the user now that email is verified
+        try:
+            logger.info(f"Creating new user for verified email: {registration_data['email']}")
+            new_user = User.create(
+                email=registration_data['email'],
+                password=registration_data['password'],
+                full_name=registration_data.get('full_name'),
+                plan_type=registration_data.get('plan_type', 'free')
+            )
+            
+            if not new_user:
+                logger.error(f"Failed to create user for email: {registration_data['email']}")
+                return """
+                <html>
+                    <head>
+                        <title>Registration Failed</title>
+                        <style>
+                            body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
+                            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                            h1 { color: #f44336; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <h1>Registration Failed</h1>
+                            <p>We couldn't complete your registration. Please try again later.</p>
+                        </div>
+                    </body>
+                </html>
+                """
+                
+            logger.info(f"User created successfully with ID: {new_user['id']}")
+            
+            # Register device if identifier provided
+            device_id = registration_data.get('device_id')
+            device_info = registration_data.get('device_info')
+            if device_id:
+                logger.info(f"Registering device {device_id} for user: {new_user['id']}")
+                Device.register(new_user['id'], device_id, device_info)
+            
+            # Remove used token
+            verification_tokens.pop(token)
+            
+            # Return success HTML page
+            return """
+            <html>
+                <head>
+                    <title>Registration Complete</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
+                        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                        h1 { color: #2e7d32; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>Registration Complete!</h1>
+                        <p>Your email has been verified and your account has been created.</p>
+                        <p>You can now log in to TextExtract using your email and password.</p>
+                        <p><a href="http://localhost:3000/login">Go to Login</a></p>
+                    </div>
+                </body>
+            </html>
+            """
+        except Exception as user_creation_error:
+            logger.error(f"Error creating user: {str(user_creation_error)}")
+            verification_tokens.pop(token)  # Remove the token to prevent reuse
+            return """
+            <html>
+                <head>
+                    <title>Registration Error</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
+                        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                        h1 { color: #f44336; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>Registration Error</h1>
+                        <p>We encountered an error while creating your account. Please try registering again.</p>
+                    </div>
+                </body>
+            </html>
+            """
         
-        # Get user by email
-        user_response = supabase.table("users").select("*").eq("email", email).execute()
-        
-        if len(user_response.data) == 0:
-            return jsonify({"error": "User not found"}), 404
-        
-        user_id = user_response.data[0]['id']
-        
-        # Update verification status
-        response = supabase.table("users").update({
-            "email_verified": True,
-            "updated_at": datetime.now().isoformat()
-        }).eq("id", user_id).execute()
-        
-        if len(response.data) == 0:
-            return jsonify({"error": "Failed to verify email"}), 500
-        
-        # Remove used token
-        verification_tokens.pop(token)
-        
-        # Return success HTML page
+    except Exception as e:
+        logger.error(f"Error in verify_email route: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return """
         <html>
             <head>
-                <title>Email Verified</title>
+                <title>Verification Error</title>
                 <style>
                     body { font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
                     .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    h1 { color: #2e7d32; }
+                    h1 { color: #f44336; }
                 </style>
             </head>
             <body>
                 <div class="container">
-                    <h1>Email Verified Successfully!</h1>
-                    <p>Your email has been verified. You can now close this window and continue using TextExtract.</p>
+                    <h1>Verification Error</h1>
+                    <p>An error occurred during email verification. Please try registering again.</p>
                 </div>
             </body>
         </html>
         """
-        
-    except Exception as e:
-        logger.error(f"Error in verify_email route: {str(e)}")
-        return jsonify({"error": "An error occurred verifying your email"}), 500
 
 @auth_routes.route('/request-email-verification', methods=['POST'])
 @login_required
