@@ -106,6 +106,17 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
     plan_id UUID REFERENCES subscription_plans(id)
 );
 
+-- Create reviews table
+CREATE TABLE IF NOT EXISTS user_reviews (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id),
+    rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    review_text TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(50) DEFAULT 'published'
+);
+
 -- Grant permissions on tables for service role and anon role
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_requests ENABLE ROW LEVEL SECURITY;
@@ -138,6 +149,10 @@ CREATE POLICY payment_transactions_policy ON payment_transactions
 
 -- Create policy for subscriptions
 CREATE POLICY subscriptions_policy ON subscriptions
+    FOR ALL USING (auth.uid() = user_id);
+
+-- Create policy for reviews
+CREATE POLICY user_reviews_policy ON user_reviews
     FOR ALL USING (auth.uid() = user_id);
 
 -- Insert default subscription plans

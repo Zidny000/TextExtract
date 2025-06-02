@@ -15,9 +15,130 @@ import {
   List,
   ListItem,
   ListItemText,
+  TextField,
+  Rating,
+  Snackbar,
 } from '@mui/material';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
+
+// Review form component
+const ReviewForm = () => {
+  const { axiosAuth } = useAuth();
+  const [rating, setRating] = useState(5);
+  const [reviewText, setReviewText] = useState('');
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: '',
+    severity: 'success'
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [userReview, setUserReview] = useState(null);
+
+  useEffect(() => {
+    // Check if user has already submitted a review
+    const fetchReview = async () => {
+      try {
+        const response = await axiosAuth.get('/users/reviews');
+        if (response.data && response.data.length > 0) {
+          const existingReview = response.data[0];
+          setUserReview(existingReview);
+          setRating(existingReview.rating);
+          setReviewText(existingReview.review_text);
+        }
+      } catch (error) {
+        console.error('Error fetching user reviews:', error);
+      }
+    };
+    
+    fetchReview();
+  }, [axiosAuth]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    
+    try {
+      await axiosAuth.post('/users/reviews', {
+        rating,
+        review_text: reviewText
+      });
+      
+      setSnackbar({
+        open: true,
+        message: 'Thank you for your feedback!',
+        severity: 'success'
+      });
+      
+      // Update local state to show the review was submitted
+      setUserReview({
+        rating,
+        review_text: reviewText,
+        created_at: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error submitting review:', error);
+      setSnackbar({
+        open: true,
+        message: 'Failed to submit review. Please try again.',
+        severity: 'error'
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Paper elevation={2} sx={{ p: 3 }}>
+      <form onSubmit={handleSubmit}>
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="subtitle1" gutterBottom>
+            Your Rating
+          </Typography>
+          <Rating
+            name="user-rating"
+            value={rating}
+            onChange={(event, newValue) => {
+              setRating(newValue || 5);
+            }}
+            precision={1}
+            size="large"
+          />
+        </Box>
+        
+        <Box sx={{ mb: 2 }}>
+          <TextField
+            fullWidth
+            multiline
+            rows={4}
+            label="Your Review"
+            variant="outlined"
+            value={reviewText}
+            onChange={(e) => setReviewText(e.target.value)}
+            placeholder="Tell us about your experience with TextExtract..."
+            required
+          />
+        </Box>
+        
+        <Button 
+          type="submit"
+          variant="contained"
+          color="primary"
+          disabled={submitting || reviewText.length < 5}
+        >
+          {userReview ? 'Update Review' : 'Submit Review'}
+        </Button>
+      </form>
+      
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={() => setSnackbar({...snackbar, open: false})}
+        message={snackbar.message}
+      />
+    </Paper>
+  );
+};
 
 const ProfilePage = () => {
   const { user, logout, axiosAuth } = useAuth();
@@ -176,9 +297,7 @@ const ProfilePage = () => {
                   </Button>
                 </CardContent>
               </Card>
-            </Grid>
-
-            <Grid item xs={12}>
+            </Grid>            <Grid item xs={12}>
               <Typography variant="h6" gutterBottom>
                 Account Actions
               </Typography>
@@ -199,6 +318,14 @@ const ProfilePage = () => {
                   Logout
                 </Button>
               </Box>
+            </Grid>
+            
+            <Grid item xs={12} sx={{ mt: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Share Your Feedback
+              </Typography>
+              <Divider sx={{ mb: 2 }} />
+              <ReviewForm />
             </Grid>
           </Grid>
         </Paper>

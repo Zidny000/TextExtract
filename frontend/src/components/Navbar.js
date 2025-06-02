@@ -84,13 +84,6 @@ const Navbar = () => {
                 </MenuItem>
                 <MenuItem 
                   component={RouterLink} 
-                  to="/change-password" 
-                  onClick={handleClose}
-                >
-                  Change Password
-                </MenuItem>
-                <MenuItem 
-                  component={RouterLink} 
                   to="/logout" 
                   onClick={handleClose}
                 >

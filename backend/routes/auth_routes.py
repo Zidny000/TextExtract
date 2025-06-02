@@ -455,6 +455,11 @@ def reset_password():
         
         token = data['token']
         new_password = data['new_password']
+
+        # Validate password strength
+        is_valid, error_message = validate_password_strength(new_password)
+        if not is_valid:
+            return jsonify({"error": error_message}), 400
         
         # Verify token exists and is valid
         if token not in reset_tokens:
@@ -789,6 +794,11 @@ def change_password():
         # Verify current password
         if not User.verify_password(g.user, data['current_password']):
             return jsonify({"error": "Current password is incorrect"}), 401
+        
+         # Validate password strength
+        is_valid, error_message = validate_password_strength(data['new_password'])
+        if not is_valid:
+            return jsonify({"error": error_message}), 400
         
         # Update password in database
         from database.db import supabase

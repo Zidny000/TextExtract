@@ -656,7 +656,6 @@ class PaymentTransaction:
         except Exception as e:
             logger.error(f"Error updating payment transaction: {str(e)}")
             return None
-    
     @staticmethod
     def get_user_transactions(user_id, limit=10, offset=0):
         """Get user's payment transactions"""
@@ -666,3 +665,53 @@ class PaymentTransaction:
         except Exception as e:
             logger.error(f"Error getting user payment transactions: {str(e)}")
             return []
+            
+            
+class UserReview:
+    """User Review model for managing user feedback"""
+    
+    @staticmethod
+    def create(user_id, rating, review_text):
+        """Create a new user review"""
+        try:
+            response = supabase.table("user_reviews").insert({
+                "user_id": user_id,
+                "rating": rating,
+                "review_text": review_text,
+                "created_at": datetime.datetime.now().isoformat(),
+                "updated_at": datetime.datetime.now().isoformat()
+            }).execute()
+            
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error creating user review: {str(e)}")
+            return None
+    
+    @staticmethod
+    def get_by_user_id(user_id):
+        """Get reviews by user ID"""
+        try:
+            response = supabase.table("user_reviews").select("*").eq("user_id", user_id).execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Error getting reviews by user ID: {str(e)}")
+            return []
+    
+    @staticmethod
+    def update_review(review_id, rating, review_text):
+        """Update an existing review"""
+        try:
+            response = supabase.table("user_reviews").update({
+                "rating": rating,
+                "review_text": review_text,
+                "updated_at": datetime.datetime.now().isoformat()
+            }).eq("id", review_id).execute()
+            
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error updating user review: {str(e)}")
+            return None

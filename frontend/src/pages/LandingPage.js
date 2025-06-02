@@ -13,7 +13,7 @@ const LandingPage = () => {
           Welcome to TextExtract
         </Typography>
         <Typography variant="h5" color="text.secondary" paragraph>
-          Extract text from your documents with ease
+          Extract text from your screen with ease
         </Typography>
         {!user && (
           <Box sx={{ mt: 4 }}>

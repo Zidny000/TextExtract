@@ -156,4 +156,50 @@ def get_requests():
         
     except Exception as e:
         logger.error(f"Error in get_requests route: {str(e)}")
-        return jsonify({"error": "An error occurred fetching request history"}), 500 
+        return jsonify({"error": "An error occurred fetching request history"}), 500
+        
+@user_routes.route('/reviews', methods=['GET'])
+@login_required
+def get_reviews():
+    """Get user's reviews"""
+    try:
+        from database.models import UserReview
+        reviews = UserReview.get_by_user_id(g.user_id)
+        return jsonify(reviews), 200
+    except Exception as e:
+        logger.error(f"Error in get_reviews route: {str(e)}")
+        return jsonify({"error": "An error occurred fetching reviews"}), 500
+        
+@user_routes.route('/reviews', methods=['POST'])
+@login_required
+def create_review():
+    """Create a new user review"""
+    try:
+        data = request.json
+        
+        # Validate data
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+            
+        rating = data.get('rating')
+        review_text = data.get('review_text')
+        
+        # Validate fields
+        if not rating or not isinstance(rating, int) or rating < 1 or rating > 5:
+            return jsonify({"error": "Rating must be between 1 and 5"}), 400
+            
+        if not review_text or not isinstance(review_text, str) or len(review_text) < 5:
+            return jsonify({"error": "Review text must be at least 5 characters"}), 400
+            
+        # Create the review
+        from database.models import UserReview
+        review = UserReview.create(g.user_id, rating, review_text)
+        
+        if review:
+            return jsonify(review), 201
+        
+        return jsonify({"error": "Failed to create review"}), 500
+        
+    except Exception as e:
+        logger.error(f"Error in create_review route: {str(e)}")
+        return jsonify({"error": "An error occurred creating review"}), 500 
