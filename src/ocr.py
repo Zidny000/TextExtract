@@ -11,9 +11,9 @@ import tkinter as tk
 from tkinter import messagebox
 from PIL import Image, ImageEnhance
 from mss import mss
-from config import DEFAULT_LANGUAGE
-from clipboard import copy_to_clipboard
-import auth  # Import our auth module
+from src.config import DEFAULT_LANGUAGE
+from src.clipboard import copy_to_clipboard
+from src.auth import is_authenticated, get_auth_token, refresh_token, get_device_id
 
 # Configuration for the proxy service
 # For local development, use localhost
@@ -129,13 +129,13 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
         return None
 
     # Check if user is authenticated
-    if not auth.is_authenticated():
+    if not is_authenticated():
         # Show login modal
         from src.ui.dialogs.auth_modal import create_auth_modal
         login_modal = create_auth_modal(parent_window, "Authentication Required")
-        is_authenticated = login_modal.show() if login_modal else False
+        is_authenticate = login_modal.show() if login_modal else False
         
-        if not is_authenticated:
+        if not is_authenticate:
             print("Authentication required to use OCR features")
             return None
 
@@ -164,8 +164,8 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
             session = get_api_session()
             
             # Get authentication token
-            token = auth.get_auth_token()
-            device_id = auth.get_device_id()
+            token = get_auth_token()
+            device_id = get_device_id()
             
             # Use the token itself as the CSRF token (common pattern for API auth)
             csrf_token = token
@@ -199,11 +199,11 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
                     error_message = error_data.get('error', '')
                     
                     # Token expired or invalid - try to refresh token
-                    refresh_success, refresh_message = auth.refresh_token()
+                    refresh_success, refresh_message = refresh_token()
                     
                     if refresh_success:
                         # Try again with new token
-                        token = auth.get_auth_token()
+                        token = get_auth_token()
                         headers["Authorization"] = f"Bearer {token}"
                         headers["X-CSRF-TOKEN"] = token  # Update CSRF token as well
                         
@@ -221,14 +221,14 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
                         # Show login modal to get new credentials
                         from src.ui.dialogs.auth_modal import create_auth_modal
                         login_modal = create_auth_modal(parent_window, "Session Expired")
-                        is_authenticated = login_modal.show() if login_modal else False
+                        is_authenticate = login_modal.show() if login_modal else False
                         
-                        if not is_authenticated:
+                        if not is_authenticate:
                             print("Authentication required to use OCR features")
                             return None
                         
                         # Try again with new token
-                        token = auth.get_auth_token()
+                        token = get_auth_token()
                         headers["Authorization"] = f"Bearer {token}"
                         headers["X-CSRF-TOKEN"] = token  # Update CSRF token as well
                         

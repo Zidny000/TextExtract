@@ -16,82 +16,17 @@ import time
 import tkinter.messagebox as messagebox
 from threading import Thread
 import logging
+from src.monitor_selector import MonitorSelector
+from src.overlay           import ScreenOverlay
+from src.ocr               import extract_text_from_area
+from src.config            import save_selected_monitor, load_selected_monitor
+from src.visual_control    import FloatingIcon
+from src.auth              import (
+    is_authenticated, refresh_token,
+    logout, open_browser_url, get_user_profile
+)
 
-# Set up debugging log file in AppData
-log_dir = os.path.join(os.environ.get('APPDATA', ''), 'TextExtract')
-os.makedirs(log_dir, exist_ok=True)
-log_file = os.path.join(log_dir, 'textextract_debug.log')
-
-def setup_logging():
-    with open(log_file, 'w') as f:
-        f.write(f"TextExtract starting\n")
-        f.write(f"Python version: {sys.version}\n")
-        f.write(f"Executable: {sys.executable}\n")
-        f.write(f"Frozen: {getattr(sys, 'frozen', False)}\n")
-        f.write(f"Current directory: {os.getcwd()}\n")
-        f.write(f"sys.path: {sys.path}\n\n")
-
-# Set up the import path
-setup_logging()
-
-# Add parent directory to path
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-    
-# Add src directory to path
-src_dir = os.path.dirname(os.path.abspath(__file__))
-if src_dir not in sys.path:
-    sys.path.insert(0, src_dir)
-    
-# If frozen, add the executable directory to path
-if getattr(sys, 'frozen', False):
-    exe_dir = os.path.dirname(sys.executable)
-    if exe_dir not in sys.path:
-        sys.path.insert(0, exe_dir)
-        
-with open(log_file, 'a') as f:
-    f.write(f"After path setup - sys.path: {sys.path}\n\n")
-
-# Now import the application modules with fallback
-try:
-    # Try importing without src prefix first (for frozen builds)
-    from monitor_selector import MonitorSelector
-    from overlay import ScreenOverlay
-    from ocr import extract_text_from_area
-    from config import save_selected_monitor, load_selected_monitor
-    from visual_control import FloatingIcon
-    from auth import is_authenticated, refresh_token, logout, open_browser_url, get_user_profile
-    
-    with open(log_file, 'a') as f:
-        f.write("Successfully imported application modules (direct import)\n")
-except Exception as e:
-    with open(log_file, 'a') as f:
-        f.write(f"Error during direct import: {e}\n")
-        f.write("Trying with src prefix...\n")
-    try:
-        # Fallback: Try with src prefix (for development)
-        from src.monitor_selector import MonitorSelector
-        from src.overlay import ScreenOverlay
-        from src.ocr import extract_text_from_area
-        from src.config import save_selected_monitor, load_selected_monitor
-        from src.visual_control import FloatingIcon
-        from src.auth import is_authenticated, refresh_token, logout, open_browser_url, get_user_profile
-        
-        with open(log_file, 'a') as f:
-            f.write("Successfully imported application modules (src prefix)\n")
-    except Exception as e2:
-        with open(log_file, 'a') as f:
-            f.write(f"Error during fallback import: {e2}\n")
-            f.write(traceback.format_exc())
-        print(f"Critical import error: {e2}")
-        print("Make sure all required modules are available.")
-        sys.exit(1)
 logger = logging.getLogger(__name__)
-
-# Add the parent directory to sys.path if running as a script
-if __name__ == "__main__" and not getattr(sys, 'frozen', False):
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Import version information
 try:

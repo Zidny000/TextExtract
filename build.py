@@ -17,9 +17,7 @@ def build_executable():
     if os.path.exists("dist"):
         print("Cleaning dist directory...")
         shutil.rmtree("dist")
-    
-    # Get the current directory
-    script_dir = os.path.dirname(os.path.abspath(__file__))    # PyInstaller command and options
+     # PyInstaller command and options
     pyinstaller_cmd = [
         'pyinstaller',
         '--noconfirm',
@@ -29,7 +27,6 @@ def build_executable():
         '--icon=assets/icon.ico',
         '--add-data=assets;assets',
         '--add-data=src;src',  # Include the src directory
-        '--runtime-hook=runtime_hooks.py'
     ]    # Add required hidden imports and modules for the application
     pyinstaller_cmd.extend([
         '--hidden-import=PIL',

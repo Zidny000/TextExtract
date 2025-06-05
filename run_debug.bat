@@ -1,10 +1,10 @@
 @echo off
 echo Running TextExtract for testing...
 echo ===============================
-cd dist\TextExtract_Debug
+cd dist\TextExtract
 
 :: Run with command window visible for debugging
-TextExtract_Debug.exe
+TextExtract.exe
 
 echo Done!
 pause

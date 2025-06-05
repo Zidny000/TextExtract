@@ -19,7 +19,6 @@ with open(log_file, 'w') as f:
     f.write(f"Executable: {sys.executable}\n")
     f.write(f"Frozen: {getattr(sys, 'frozen', False)}\n")
     f.write(f"Current directory: {os.getcwd()}\n")
-    f.write(f"sys.path: {sys.path}\n\n")
 
 try:
     if getattr(sys, 'frozen', False):
@@ -32,16 +31,9 @@ try:
         # Add the bundle directory to PATH
         os.environ['PATH'] = bundle_dir + os.pathsep + os.environ.get('PATH', '')
         
-        # Add bundle_dir and src to sys.path to ensure imports work correctly
-        if bundle_dir not in sys.path:
-            sys.path.insert(0, bundle_dir)
-        
         # Add src directory to path
         src_dir = os.path.join(bundle_dir, 'src')
-        if os.path.exists(src_dir) and src_dir not in sys.path:
-            sys.path.insert(0, src_dir)
-            with open(log_file, 'a') as f:
-                f.write(f"Added src directory to path: {src_dir}\n")
+
           # Create directory structure if it doesn't exist
         for dir_name in ['src', 'src/ui', 'src/ui/dialogs', 'src/utils', 'src/utils/threading']:
             dir_path = os.path.join(bundle_dir, dir_name)
