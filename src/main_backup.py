@@ -1,4 +1,3 @@
-# filepath: d:\Work\Personal\textextract\src\main.py
 import ctypes
 import keyboard
 import threading
@@ -8,14 +7,6 @@ import sys
 import winreg
 import socket
 import traceback
-import tkinter as tk
-from screeninfo import get_monitors
-import pystray
-from PIL import Image, ImageDraw
-import time
-import tkinter.messagebox as messagebox
-from threading import Thread
-import logging
 
 # Set up debugging log file in AppData
 log_dir = os.path.join(os.environ.get('APPDATA', ''), 'TextExtract')
@@ -32,61 +23,51 @@ def setup_logging():
         f.write(f"sys.path: {sys.path}\n\n")
 
 # Set up the import path
-setup_logging()
-
-# Add parent directory to path
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-    
-# Add src directory to path
-src_dir = os.path.dirname(os.path.abspath(__file__))
-if src_dir not in sys.path:
-    sys.path.insert(0, src_dir)
-    
-# If frozen, add the executable directory to path
-if getattr(sys, 'frozen', False):
-    exe_dir = os.path.dirname(sys.executable)
-    if exe_dir not in sys.path:
-        sys.path.insert(0, exe_dir)
-        
-with open(log_file, 'a') as f:
-    f.write(f"After path setup - sys.path: {sys.path}\n\n")
-
-# Now import the application modules with fallback
 try:
-    # Try importing without src prefix first (for frozen builds)
-    from monitor_selector import MonitorSelector
-    from overlay import ScreenOverlay
-    from ocr import extract_text_from_area
-    from config import save_selected_monitor, load_selected_monitor
-    from visual_control import FloatingIcon
-    from auth import is_authenticated, refresh_token, logout, open_browser_url, get_user_profile
+    setup_logging()
+    
+    # Add parent directory to path
+    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+        
+    # Add src directory to path
+    src_dir = os.path.dirname(os.path.abspath(__file__))
+    if src_dir not in sys.path:
+        sys.path.insert(0, src_dir)
+        
+    # If frozen, add the executable directory to path
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+        if exe_dir not in sys.path:
+            sys.path.insert(0, exe_dir)
+            
+    with open(log_file, 'a') as f:
+        f.write(f"After path setup - sys.path: {sys.path}\n\n")
+        
+    # Now import the application modules
+    from src.monitor_selector import MonitorSelector
+    from src.overlay import ScreenOverlay
+    from src.ocr import extract_text_from_area
+    from src.config import save_selected_monitor, load_selected_monitor
+    from src.visual_control import FloatingIcon
+    from src.auth import is_authenticated, refresh_token, logout, open_browser_url, get_user_profile
     
     with open(log_file, 'a') as f:
-        f.write("Successfully imported application modules (direct import)\n")
+        f.write("Successfully imported application modules\n")
 except Exception as e:
     with open(log_file, 'a') as f:
-        f.write(f"Error during direct import: {e}\n")
-        f.write("Trying with src prefix...\n")
-    try:
-        # Fallback: Try with src prefix (for development)
-        from src.monitor_selector import MonitorSelector
-        from src.overlay import ScreenOverlay
-        from src.ocr import extract_text_from_area
-        from src.config import save_selected_monitor, load_selected_monitor
-        from src.visual_control import FloatingIcon
-        from src.auth import is_authenticated, refresh_token, logout, open_browser_url, get_user_profile
-        
-        with open(log_file, 'a') as f:
-            f.write("Successfully imported application modules (src prefix)\n")
-    except Exception as e2:
-        with open(log_file, 'a') as f:
-            f.write(f"Error during fallback import: {e2}\n")
-            f.write(traceback.format_exc())
-        print(f"Critical import error: {e2}")
-        print("Make sure all required modules are available.")
-        sys.exit(1)
+        f.write(f"Error during import setup: {e}\n")
+        f.write(traceback.format_exc())
+import tkinter as tk
+from screeninfo import get_monitors
+import pystray
+from PIL import Image, ImageDraw
+import time
+import tkinter.messagebox as messagebox
+from threading import Thread
+import traceback  # Add traceback for better error reporting
+import logging
 logger = logging.getLogger(__name__)
 
 # Add the parent directory to sys.path if running as a script
@@ -257,9 +238,24 @@ def main():
         root = tk.Tk()
         
         # Initialize thread manager
-        from src.utils.threading.thread_manager import init_thread_manager
-        init_thread_manager(root)
-        print("Thread manager initialized")
+        try:
+            # Try various import approaches
+            try:
+                from src.utils.threading import init_thread_manager
+            except ImportError:
+                try:
+                    from utils.threading import init_thread_manager
+                except ImportError:
+                    try:
+                        from src.utils.threading.thread_manager import init_thread_manager
+                    except ImportError:
+                        from utils.threading.thread_manager import init_thread_manager
+            
+            init_thread_manager(root)
+            print("Thread manager initialized")
+        except Exception as e:
+            print(f"Warning: Thread manager initialization failed: {e}")
+            print("Continuing without thread manager...")
         
         # Create a simple splash screen
         splash = tk.Toplevel(root)
@@ -386,7 +382,6 @@ def main():
         
         print(f"{APP_NAME} v{__version__} started")
         print("- Ctrl+Alt+C: Capture from last selected monitor")
-        print("- Ctrl+Alt+M: Change monitor selection")
         print("- Ctrl+Alt+V: Show visual control icon")
         print("- Floating icon available for visual control")
         print("- System tray icon available in the notification area")
@@ -398,16 +393,14 @@ def main():
                     command, args = app_state.command_queue.get_nowait()
                     if command == "capture":
                         capture_from_selected_monitor()
-                    elif command == "change_monitor":
-                        change_monitor_selection()
                     elif command == "change_monitor_by_index":
                         change_monitor_by_index(args[0])
                     elif command == "toggle_floating_icon":
                         toggle_floating_icon()
-                    elif command == "open_profile_browser":
-                        open_profile_in_browser()
                     elif command == "logout":
                         logout_user()
+                    elif command == "open_profile_browser":
+                        open_profile_in_browser()
                     elif command == "exit":
                         exit_application()
                     app_state.command_queue.task_done()
@@ -461,10 +454,6 @@ def main():
                 print(f"Extracted Text:\n{extracted_text}")
             else:
                 print("No text found.")
-
-        def change_monitor_selection():
-            # Temporarily make root visible to help with focus issues
-            root.update_idletasks()
             
             selector = MonitorSelector(root)  # Pass root as the parent
             new_monitor = selector.start()
@@ -482,8 +471,7 @@ def main():
 
         def get_selected_monitor():
             return app_state.selected_monitor
-        
-        
+      
         def open_profile_in_browser():
             """Open the user profile in the web browser"""
             print("Opening profile page in web browser...")
@@ -494,7 +482,7 @@ def main():
                 print(f"Error opening profile in browser: {e}")
                 print(traceback.format_exc())
                 messagebox.showerror("Error", f"Failed to open profile page: {str(e)}")
-        
+
         def logout_user():
             """Safely logout the user"""
             try:
@@ -555,10 +543,6 @@ def main():
         
         def safe_toggle_floating_icon():
             root.after(0, lambda: app_state.command_queue.put(("toggle_floating_icon", None)))
-
-        def safe_open_profile_in_browser():
-            # Execute in the main thread using after() to avoid freezing
-            root.after(0, lambda: app_state.command_queue.put(("open_profile_browser", None)))
         
         def safe_logout():
             # Execute in the main thread using after() to avoid freezing
@@ -566,6 +550,10 @@ def main():
         
         def safe_exit():
             root.after(0, lambda: app_state.command_queue.put(("exit", None)))
+
+        def safe_open_profile_in_browser():
+            # Execute in the main thread using after() to avoid freezing
+            root.after(0, lambda: app_state.command_queue.put(("open_profile_browser", None)))
         
         def safe_change_monitor_by_index(idx):
             root.after(0, lambda: app_state.command_queue.put(("change_monitor_by_index", [idx])))
@@ -664,50 +652,6 @@ def main():
             
             print("System tray icon created")
 
-        def show_about_dialog():
-            """Show an about dialog with version information"""
-            about_window = tk.Toplevel(root)
-            about_window.title(f"About {APP_NAME}")
-            about_window.geometry("300x200")
-            about_window.resizable(False, False)
-            about_window.attributes('-topmost', True)
-            
-            # Try to set the icon
-            try:
-                if getattr(sys, 'frozen', False):
-                    icon_path = os.path.join(os.path.dirname(sys.executable), 'assets', 'icon.ico')
-                else:
-                    icon_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets', 'icon.ico')
-                
-                if os.path.exists(icon_path):
-                    about_window.iconbitmap(icon_path)
-            except:
-                pass  # Ignore icon errors
-            
-            # Add version information
-            tk.Label(about_window, text=f"{APP_NAME}", font=("Arial", 14, "bold")).pack(pady=(20, 5))
-            tk.Label(about_window, text=f"Version {__version__}").pack(pady=5)
-            tk.Label(about_window, text="Screen Text Extraction Tool").pack(pady=5)
-            
-            # Copyright information
-            try:
-                from version import __copyright__
-                copyright_text = __copyright__
-            except ImportError:
-                copyright_text = f"© 2023-2024 {APP_NAME}"
-            
-            tk.Label(about_window, text=copyright_text, font=("Arial", 8)).pack(pady=(20, 5))
-            
-            # Close button
-            tk.Button(about_window, text="OK", command=about_window.destroy, width=10).pack(pady=10)
-            
-            # Center the window
-            about_window.update_idletasks()
-            width = about_window.winfo_width()
-            height = about_window.winfo_height()
-            x = (about_window.winfo_screenwidth() // 2) - (width // 2)
-            y = (about_window.winfo_screenheight() // 2) - (height // 2)
-            about_window.geometry(f'{width}x{height}+{x}+{y}')
 
         # Register hotkeys with thread-safe callbacks
         keyboard.add_hotkey('ctrl+alt+c', safe_capture)

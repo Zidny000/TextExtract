@@ -123,7 +123,7 @@ class AuthModal(BaseDialog):
         # Title label with larger font
         title_font = ("Arial", 16, "bold")
         title = ttk.Label(main_frame, text="TextExtract Authentication", font=title_font)
-        title.pack(pady=(0, 20))
+        title.pack(pady=(0, 20), anchor='center')
         
         # Instruction text
         instruction_text = (
@@ -132,7 +132,7 @@ class AuthModal(BaseDialog):
             "you can log in to your TextExtract account.\n\n"
             "After successful login, you'll be redirected back to the app."
         )
-        instruction = ttk.Label(main_frame, text=instruction_text, justify=tk.CENTER)
+        instruction = ttk.Label(main_frame, text=instruction_text, justify=tk.CENTER, anchor='center')
         instruction.pack(pady=(0, 20), fill=tk.X)
         
         # Status variable for showing login status

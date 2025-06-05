@@ -157,6 +157,11 @@ def get_user_id():
         print(f"Error getting user ID: {e}")
         return None
 
+def is_authenticated():
+    """Check if user is authenticated"""
+    token = get_auth_token()
+    return token is not None and token != ""
+
 # Handler for the authorization callback
 class AuthCallbackHandler(http.server.SimpleHTTPRequestHandler):
     """Handler for authorization callback"""
@@ -526,11 +531,6 @@ def stop_auth_callback_server(server):
     if server:
         server.shutdown()
         logger.info("Auth callback server stopped")
-
-def is_authenticated():
-    """Check if user is authenticated"""
-    token = get_auth_token()
-    return token is not None and token != ""
 
 def auth_callback(success, token, user_id, email, refresh_token=None, callback=None, auth_result=None, auth_completed=None):
     """Handle the callback from the authentication server"""
@@ -1051,4 +1051,4 @@ def reset_authentication_state():
         print(f"Error checking for open servers: {e}")
     
     print("Authentication state reset complete")
-    return True 
+    return True

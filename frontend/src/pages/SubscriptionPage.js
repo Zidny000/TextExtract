@@ -127,6 +127,14 @@ const SubscriptionPage = () => {
   }, [user, axiosAuth.defaults.headers.common]);
 
   const handleUpgradeClick = (planId, planName, price) => {
+    // Check if user is logged in before showing the payment dialog
+    if (!user) {
+      // Redirect to login page with return URL set to subscription page
+      navigate('/login', { state: { from: '/subscription' } });
+      return;
+    }
+    
+    // If user is logged in, show the payment dialog
     setActiveDialog({
       open: true,
       planId,

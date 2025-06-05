@@ -16,3 +16,4 @@ pefile
 altgraph
 keyring
 stripe
+tkinter
