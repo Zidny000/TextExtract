@@ -26,8 +26,8 @@ RequestExecutionLevel admin
 !define PRODUCT_WEB_SITE "https://textextract.app"
 !define APP_EXE "TextExtract.exe"
 
-; Custom pages
-Page custom OCRModelDownloadPage OCRModelDownloadPageLeave
+; Custom pages (OCR download page removed)
+; Removed OCRModelDownloadPage as it's no longer needed
 
 ; Standard pages
 !insertmacro MUI_PAGE_WELCOME
@@ -56,59 +56,15 @@ VIAddVersionKey "LegalCopyright" "© ${PRODUCT_PUBLISHER}"
 VIAddVersionKey "FileDescription" "TextExtract Screen Text OCR Tool"
 VIAddVersionKey "FileVersion" "${PRODUCT_VERSION}"
 
-; Variables
-Var DownloadModels
-Var Dialog
-Var Label1
-Var Label2
-Var CheckBox
+; Variables (OCR-related variables removed)
+; Removed DownloadModels, Dialog, Label1, Label2, CheckBox variables as they're no longer needed
 
-; Custom function for downloading OCR models page
-Function OCRModelDownloadPage
-    !insertmacro MUI_HEADER_TEXT "Download OCR Models" "Choose whether to download OCR models during installation."
-    
-    ; Create dialog
-    nsDialogs::Create 1018
-    Pop $Dialog
-    ${If} $Dialog == error
-        Abort
-    ${EndIf}
-    
-    ; Add labels
-    ${NSD_CreateLabel} 0 0 100% 24u "TextExtract uses PaddleOCR for text recognition."
-    Pop $Label1
-    
-    ${NSD_CreateLabel} 0 30u 100% 50u "The first time the application runs, it needs to download OCR models (about 100MB). You can pre-download these models now during installation to improve the first-use experience."
-    Pop $Label2
-    
-    ; Add checkbox
-    ${NSD_CreateCheckBox} 0 90u 100% 10u "Download OCR models now (recommended)"
-    Pop $CheckBox
-    ${NSD_Check} $CheckBox ; checked by default
-    
-    nsDialogs::Show
-FunctionEnd
+; Custom functions for OCR models (removed - no longer needed)
+; OCRModelDownloadPage and OCRModelDownloadPageLeave functions removed
+; as the application no longer uses local OCR models
 
-Function OCRModelDownloadPageLeave
-    ${NSD_GetState} $CheckBox $DownloadModels
-FunctionEnd
-
-; Function to download models
-Function DownloadOCRModels
-    DetailPrint "Downloading OCR models (this may take a few minutes)..."
-    
-    ; Run the model download script
-    nsExec::ExecToLog '"$INSTDIR\python\python.exe" "$INSTDIR\download_models.py"'
-    Pop $0
-    
-    DetailPrint "Download process finished with exit code: $0"
-    ${If} $0 == 0
-        DetailPrint "OCR models downloaded successfully."
-    ${Else}
-        DetailPrint "Model download may not have completed successfully. Models will be downloaded at first run."
-        MessageBox MB_OK|MB_ICONINFORMATION "OCR models will be downloaded automatically the first time you use the application. This may cause a slight delay on first use."
-    ${EndIf}
-FunctionEnd
+; Function to download models (removed - no longer using PaddleOCR)
+; This function has been removed as the application no longer uses local OCR models
 
 ; Sections
 Section "TextExtract (required)" SecMain
@@ -116,11 +72,9 @@ Section "TextExtract (required)" SecMain
     SetOutPath "$INSTDIR"
     
     ; Copy all files from the dist/TextExtract directory
-    File /r "dist\TextExtract\*.*"
-    
-    ; Copy additional files
+    File /r "dist\TextExtract\*.*"    ; Copy additional files
     File "TextExtract_Install_Helper.bat"
-    File "download_models.py"
+    File "README.md"
     
     ; Create log directory in AppData
     CreateDirectory "$APPDATA\TextExtract"
@@ -157,14 +111,10 @@ Section "TextExtract (required)" SecMain
     ; Register application to appear in Windows Search
     WriteRegStr HKLM "Software\Classes\Applications\${APP_EXE}\shell\open\command" "" '"$INSTDIR\${APP_EXE}" "%1"'
     WriteRegStr HKLM "Software\Classes\Applications\${APP_EXE}\DefaultIcon" "" "$INSTDIR\${APP_EXE},0"
-    
-    ; Add app to Windows path (for command-line access)
+      ; Add app to Windows path (for command-line access)
     EnVar::AddValue "PATH" "$INSTDIR"
     
-    ; Download OCR models if selected
-    ${If} $DownloadModels == ${BST_CHECKED}
-        Call DownloadOCRModels
-    ${EndIf}
+    ; OCR model download removed - no longer needed
 SectionEnd
 
 Section "Desktop Shortcut" SecDesktop
