@@ -586,12 +586,17 @@ def main():
             menu = (
                 pystray.MenuItem('Profile', lambda: safe_open_profile_in_browser()),
                 pystray.MenuItem('Capture (Ctrl+Alt+C)', lambda: safe_capture()),
+                pystray.MenuItem('Floating UI (Ctrl+Alt+V)', lambda: safe_toggle_floating_icon(), default=True ),
                 pystray.MenuItem('Logout', lambda: safe_logout()),
                 pystray.MenuItem('Exit', lambda: safe_exit())
             )
-            
-            # Create the tray icon
-            app_state.tray_icon = pystray.Icon("TextExtract", icon_image, f"{APP_NAME} v{__version__}", menu)
+              # Create the tray icon with click handler to toggle floating icon
+            app_state.tray_icon = pystray.Icon(
+                "TextExtract", 
+                icon_image, 
+                f"{APP_NAME} v{__version__}", 
+                menu,
+            )
             
             # Run the tray icon in a separate thread
             tray_thread = threading.Thread(target=lambda: app_state.tray_icon.run(), daemon=True)
@@ -599,50 +604,6 @@ def main():
             
             print("System tray icon created")
 
-        def show_about_dialog():
-            """Show an about dialog with version information"""
-            about_window = tk.Toplevel(root)
-            about_window.title(f"About {APP_NAME}")
-            about_window.geometry("300x200")
-            about_window.resizable(False, False)
-            about_window.attributes('-topmost', True)
-            
-            # Try to set the icon
-            try:
-                if getattr(sys, 'frozen', False):
-                    icon_path = os.path.join(os.path.dirname(sys.executable), 'assets', 'icon.ico')
-                else:
-                    icon_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets', 'icon.ico')
-                
-                if os.path.exists(icon_path):
-                    about_window.iconbitmap(icon_path)
-            except:
-                pass  # Ignore icon errors
-            
-            # Add version information
-            tk.Label(about_window, text=f"{APP_NAME}", font=("Arial", 14, "bold")).pack(pady=(20, 5))
-            tk.Label(about_window, text=f"Version {__version__}").pack(pady=5)
-            tk.Label(about_window, text="Screen Text Extraction Tool").pack(pady=5)
-            
-            # Copyright information
-            try:
-                from version import __copyright__
-                copyright_text = __copyright__
-            except ImportError:
-                copyright_text = f"© 2023-2024 {APP_NAME}"
-            
-            tk.Label(about_window, text=copyright_text, font=("Arial", 8)).pack(pady=(20, 5))
-            
-            # Close button
-            tk.Button(about_window, text="OK", command=about_window.destroy, width=10).pack(pady=10)
-            
-            # Center the window
-            about_window.update_idletasks()
-            width = about_window.winfo_width()
-            height = about_window.winfo_height()
-            x = (about_window.winfo_screenwidth() // 2) - (width // 2)
-            y = (about_window.winfo_screenheight() // 2) - (height // 2)
-            about_window.geometry(f'{width}x{height}+{x}+{y}')
 
         # Register hotkeys with thread-safe callbacks
         keyboard.add_hotkey('ctrl+alt+c', safe_capture)
