@@ -19,6 +19,7 @@ class FloatingIcon:
         self.drag_start_y = 0
         self.monitors = get_monitors()
         self.is_visible = False
+        self.is_responding = True
         
         # Create the main window
         self.root = None
@@ -150,6 +151,9 @@ class FloatingIcon:
     
     def on_press(self, event):
         """Handle mouse press events"""
+        if not self.is_responding:
+            return
+            
         x, y = event.x, event.y
         
         # Check if click is on capture button (left circle)
@@ -170,7 +174,7 @@ class FloatingIcon:
     
     def on_drag(self, event):
         """Handle mouse drag events"""
-        if not self.dragging:
+        if not self.dragging or not self.is_responding:
             return
         
         # Calculate new position
@@ -184,7 +188,7 @@ class FloatingIcon:
     
     def toggle_expand(self):
         """Toggle between expanded and collapsed states"""
-        if not self.root:
+        if not self.root or not self.is_responding:
             return
             
         if self.is_expanded:
@@ -239,6 +243,9 @@ class FloatingIcon:
     
     def select_monitor(self, monitor_index):
         """Select a monitor and update UI"""
+        if not self.is_responding:
+            return
+            
         self.monitor_select_callback(monitor_index)
         self.create_monitor_list()  # Refresh to show new selection
     

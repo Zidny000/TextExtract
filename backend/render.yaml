@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: textextract-backend
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn backend.app:app"  # Adjust if entry point is different
+    plan: free

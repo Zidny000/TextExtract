@@ -17,10 +17,7 @@ def build_executable():
     if os.path.exists("dist"):
         print("Cleaning dist directory...")
         shutil.rmtree("dist")
-    
-    # Get the current directory
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-
+        
     # PyInstaller command and options
     pyinstaller_cmd = [
         'pyinstaller',
@@ -30,96 +27,22 @@ def build_executable():
         '--name=TextExtract',
         '--icon=assets/icon.ico',
         '--add-data=assets;assets',
-        '--runtime-hook=runtime_hooks.py'
+        '--add-data=src;src',  # Include the src directory
     ]
-
-    # Add PaddleOCR data directories to the bundle
-    paddleocr_dirs = []
-    paddle_home = os.path.expanduser('~/.paddleocr')
-
-    try:
-        # Try to import paddleocr to find its installation path
-        import paddleocr
-        import paddle
-        
-        print(f"Found PaddlePaddle {paddle.__version__}")
-        print(f"Found PaddleOCR {paddleocr.__version__}")
-        
-        # Verify correct versions
-        if paddle.__version__ != "2.6.2":
-            print(f"Warning: PaddlePaddle version {paddle.__version__} found, but 2.6.2 is recommended")
-            if input("Install recommended version? (y/n): ").lower() == 'y':
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "paddlepaddle==2.6.2", "--force-reinstall"])
-                import paddle
-                print(f"Updated to PaddlePaddle {paddle.__version__}")
-        
-        if paddleocr.__version__ != "2.10.0":
-            print(f"Warning: PaddleOCR version {paddleocr.__version__} found, but 2.10.0 is recommended")
-            if input("Install recommended version? (y/n): ").lower() == 'y':
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "paddleocr==2.10.0", "--force-reinstall"])
-                import paddleocr
-                print(f"Updated to PaddleOCR {paddleocr.__version__}")
-        
-        paddle_dir = os.path.dirname(paddle.__file__)
-        paddleocr_dir = os.path.dirname(paddleocr.__file__)
-        
-        # Add paddle and paddleocr module directories
-        pyinstaller_cmd.extend([
-            f'--add-data={paddle_dir};paddle',
-            f'--add-data={paddleocr_dir};paddleocr'
-        ])
-        
-        # Add PaddleOCR data directories if needed
-        try:
-            import paddleocr
-            paddle_dir = os.path.dirname(paddleocr.__file__)
-            paddleocr_data_dirs = [
-                os.path.join(paddle_dir, 'ppocr', 'utils'),
-                os.path.join(paddle_dir, 'ppocr', 'postprocess'),
-                os.path.join(paddle_dir, 'ppocr', 'data')
-            ]
-            
-            for data_dir in paddleocr_data_dirs:
-                if os.path.exists(data_dir):
-                    rel_path = os.path.relpath(data_dir, paddle_dir)
-                    dest_path = os.path.join('paddleocr', rel_path)
-                    pyinstaller_cmd.append(f'--add-data={data_dir};{dest_path}')
-                    print(f"Added PaddleOCR data directory: {data_dir}")
-                else:
-                    print(f"Warning: PaddleOCR directory not found: {data_dir}")
-            
-            # Add model directories if downloaded
-            model_dirs = [os.path.join(paddle_home, d) for d in os.listdir(paddle_home)] if os.path.exists(paddle_home) else []
-            
-            for model_dir in model_dirs:
-                if os.path.isdir(model_dir):
-                    rel_path = os.path.relpath(model_dir, os.path.dirname(paddle_home))
-                    dest_path = os.path.join('paddleocr', rel_path)
-                    pyinstaller_cmd.append(f'--add-data={model_dir};{dest_path}')
-                    print(f"Added PaddleOCR model directory: {model_dir}")
-                else:
-                    print(f"Warning: PaddleOCR model directory not found: {model_dir}")
-        except ImportError:
-            print("PaddleOCR not installed, please install with pip install paddleocr==2.10.0")
-            sys.exit(1)
-            
-        # Add hidden imports for paddle and paddleocr
-        pyinstaller_cmd.extend([
-            '--hidden-import=paddle',
-            '--hidden-import=paddle.fluid',
-            '--hidden-import=paddleocr',
-            '--hidden-import=paddleocr.ppocr',
-            '--hidden-import=paddleocr.tools'
-        ])
-        
-    except ImportError:
-        print("PaddleOCR is required for the build. Please install it first with:")
-        print("pip install paddlepaddle==2.6.2 paddleocr==2.10.0")
-        if input("Install now? (y/n): ").lower() == 'y':
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "paddlepaddle==2.6.2"])
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "paddleocr==2.10.0"])
-            print("Dependencies installed. Please run the build script again.")
-        sys.exit(1)
+    
+    # Add required hidden imports and modules for the application
+    pyinstaller_cmd.extend([
+        '--hidden-import=PIL',
+        '--hidden-import=mss',
+        '--hidden-import=requests',
+        '--hidden-import=keyboard',
+        '--hidden-import=pyperclip',
+        '--hidden-import=tkinter',
+        '--hidden-import=threading',
+        '--hidden-import=queue',
+        '--hidden-import=winreg',
+        '--hidden-import=pystray'
+    ])
 
     # Add the main.py file to the PyInstaller command
     pyinstaller_cmd.append('src/main.py')
@@ -138,12 +61,7 @@ def build_executable():
         print("Copying icon.ico to dist/TextExtract/assets")
         shutil.copy2("assets/icon.ico", "dist/TextExtract/assets/icon.ico")
     
-    # Copy model download script
-    if os.path.exists("download_models.py"):
-        print("Copying download_models.py to dist/TextExtract")
-        shutil.copy2("download_models.py", "dist/TextExtract/download_models.py")
-    else:
-        print("Warning: download_models.py not found")
+    # No need for model download script as we're using API service for OCR now
     
     print("Build completed successfully!")
     print("The executable is located in the dist/TextExtract directory.")
@@ -160,5 +78,105 @@ def build_executable():
         shutil.copy2("create_shortcuts.bat", "dist/TextExtract/create_shortcuts.bat")
         print("Shortcut creation batch file copied to the dist folder.")
 
+def build_installer():
+    """Build the NSIS installer after creating the executable"""
+    print("\nBuilding Windows installer...")
+    
+    # Check if NSIS is available
+    nsis_paths = [
+        "C:\\Program Files (x86)\\NSIS\\makensis.exe",
+        "C:\\Program Files\\NSIS\\makensis.exe",
+        "makensis.exe"  # If NSIS is in PATH
+    ]
+    
+    nsis_exe = None
+    for path in nsis_paths:
+        if os.path.exists(path) or path == "makensis.exe":
+            try:
+                # Test if the command works
+                result = subprocess.run([path, "/VERSION"], 
+                                      capture_output=True, text=True, timeout=10)
+                if result.returncode == 0:
+                    nsis_exe = path
+                    break
+            except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+                continue
+    
+    if not nsis_exe:
+        print("NSIS not found. Please install NSIS (Nullsoft Scriptable Install System) to create the installer.")
+        print("Download from: https://nsis.sourceforge.io/Download")
+        print("The executable files are ready in the dist/TextExtract directory.")
+        return False
+    
+    print(f"Found NSIS at: {nsis_exe}")
+    
+    # Ensure the installer.nsi file exists
+    if not os.path.exists("installer.nsi"):
+        print("installer.nsi file not found. Cannot create installer.")
+        return False
+    
+    try:
+        # Run NSIS to compile the installer
+        print("Compiling NSIS installer...")
+        result = subprocess.run([nsis_exe, "installer.nsi"], 
+                              capture_output=True, text=True, check=True)
+        
+        print("NSIS compilation output:")
+        print(result.stdout)
+        
+        if os.path.exists("TextExtract_Setup.exe"):
+            print("\n✅ Windows installer created successfully!")
+            print("📦 Installer file: TextExtract_Setup.exe")
+            print("\nTo properly install TextExtract:")
+            print("1. Run TextExtract_Setup.exe as administrator")
+            print("2. This will:")
+            print("   - Install the application to Program Files")
+            print("   - Create desktop and Start Menu shortcuts")
+            print("   - Register the application in Windows")
+            print("   - Make it searchable in Windows Search")
+            print("   - Add it to Add/Remove Programs")
+            return True
+        else:
+            print("❌ Installer file was not created.")
+            return False
+            
+    except subprocess.CalledProcessError as e:
+        print(f"❌ NSIS compilation failed: {e}")
+        print("NSIS error output:")
+        print(e.stderr)
+        return False
+    except Exception as e:
+        print(f"❌ Error running NSIS: {e}")
+        return False
+
+def main():
+    """Main build function"""
+    try:
+        # Build the executable first
+        build_executable()
+        
+        print("\n" + "="*60)
+        print("EXECUTABLE BUILD COMPLETED")
+        print("="*60)
+        
+        # Then build the installer
+        installer_success = build_installer()
+        
+        print("\n" + "="*60)
+        print("BUILD SUMMARY")
+        print("="*60)
+        print("✅ Executable created in: dist/TextExtract/")
+        
+        if installer_success:
+            print("✅ Windows installer created: TextExtract_Setup.exe")
+            print("\n🚀 RECOMMENDED: Use the installer for proper Windows integration!")
+        else:
+            print("⚠️  Installer creation failed - executable only")
+            print("\n📁 You can still use the files in dist/TextExtract/ as a portable app")
+        
+    except Exception as e:
+        print(f"❌ Build failed: {e}")
+        sys.exit(1)
+
 if __name__ == "__main__":
-    build_executable() 
+    main()

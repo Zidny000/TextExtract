@@ -3,58 +3,42 @@ import os
 import tempfile
 import threading
 import sys
-import numpy as np
+import base64
+import json
+import requests
+import time
+import tkinter as tk
+from tkinter import messagebox
 from PIL import Image, ImageEnhance
 from mss import mss
-from config import DEFAULT_LANGUAGE
-from clipboard import copy_to_clipboard
+from src.config import DEFAULT_LANGUAGE
+from src.clipboard import copy_to_clipboard
+from src.auth import is_authenticated, get_auth_token, refresh_token, get_device_id
 
-# Try to import PaddleOCR
-try:
-    from paddleocr import PaddleOCR
-except ImportError:
-    # Create a placeholder PaddleOCR class so the module can be imported
-    class PaddleOCR:
-        def __init__(self, **kwargs):
-            raise ImportError(
-                "PaddleOCR could not be imported. Please install the required packages:\n"
-                "pip install paddlepaddle==2.6.2 paddleocr==2.10.0"
-            )
-        
-        def ocr(self, *args, **kwargs):
-            raise ImportError(
-                "PaddleOCR could not be imported. Please install the required packages:\n"
-                "pip install paddlepaddle==2.6.2 paddleocr==2.10.0"
-            )
+# Configuration for the proxy service
+# For local development, use localhost
+PROXY_API_URL = "http://localhost:5000/api/ocr"
 
-# Initialize PaddleOCR - use a lock to prevent multiple initializations
-paddle_lock = threading.Lock()
-_paddle_ocr = None
+# Initialize API client with a lock to prevent multiple initializations
+api_lock = threading.Lock()
+_api_session = None
 
-def get_paddle_ocr():
-    """Get or initialize PaddleOCR instance using a singleton pattern"""
-    global _paddle_ocr
-    with paddle_lock:
-        if _paddle_ocr is None:
+def get_api_session():
+    """Get or initialize API session instance using a singleton pattern"""
+    global _api_session
+    with api_lock:
+        if _api_session is None:
             try:
-                # Initialize PaddleOCR with the appropriate language
-                # For PaddleOCR 2.10.0, we use specific parameters for best compatibility
-                _paddle_ocr = PaddleOCR(
-                    use_angle_cls=True, 
-                    lang=DEFAULT_LANGUAGE,
-                    show_log=False,
-                    use_gpu=False  # Set to True if you have a GPU with CUDA
-                )
-            except ImportError as e:
-                print(f"Error initializing PaddleOCR: {e}")
-                print(f"Please ensure both paddle and paddleocr packages are installed.")
-                print(f"Required versions: paddlepaddle==2.6.2 paddleocr==2.10.0")
-                raise
+                _api_session = requests.Session()
+                # Set common headers, etc.
+                _api_session.headers.update({
+                    "User-Agent": f"TextExtract/{getattr(sys, 'frozen', False) and 'app' or 'dev'}",
+                    "X-App-Version": os.getenv("APP_VERSION", "1.0.0")
+                })
             except Exception as e:
-                print(f"Unexpected error initializing PaddleOCR: {e}")
+                print(f"Error initializing API client: {e}")
                 raise
-    
-    return _paddle_ocr
+    return _api_session
 
 def preprocess_image(image):
     """Preprocess image for better OCR results."""
@@ -75,8 +59,59 @@ def preprocess_image(image):
     
     return image
 
-def extract_text_from_area(x1, y1, x2, y2):
-    """Extract text from the specified screen area using PaddleOCR."""
+def image_to_base64(image):
+    """Convert PIL Image to base64 string."""
+    import io
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG")
+    return base64.b64encode(buffered.getvalue()).decode()
+
+def show_upgrade_dialog(parent_window, current_count, max_count):
+    """Show dialog prompting user to upgrade their subscription"""
+    root = tk.Tk() if parent_window is None else tk.Toplevel(parent_window)
+    root.withdraw()  # Hide the root window
+    
+    result = messagebox.askyesno(
+        "Subscription Limit Reached",
+        f"You have used {current_count} of your {max_count} daily OCR requests.\n\n"
+        "Would you like to upgrade your subscription plan for more requests?",
+        parent=parent_window if parent_window else root
+    )
+    
+    if result:
+        # Open subscription page in browser
+        import webbrowser
+        webbrowser.open("http://localhost:3000/subscription")
+    
+    if parent_window is None:
+        root.destroy()
+    
+    return result
+
+def show_device_limit_dialog(parent_window):
+    """Show dialog informing user they've reached device limit"""
+    root = tk.Tk() if parent_window is None else tk.Toplevel(parent_window)
+    root.withdraw()  # Hide the root window
+    
+    result = messagebox.askyesno(
+        "Device Limit Reached",
+        "You have reached the maximum number of devices allowed on your current plan.\n\n"
+        "Would you like to upgrade your subscription for more devices?",
+        parent=parent_window if parent_window else root
+    )
+    
+    if result:
+        # Open subscription page in browser
+        import webbrowser
+        webbrowser.open("http://localhost:3000/subscription")
+    
+    if parent_window is None:
+        root.destroy()
+    
+    return result
+
+def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
+    """Extract text from the specified screen area using the OCR proxy service."""
     # Check for invalid coordinates
     if None in (x1, y1, x2, y2):
         print("Invalid selection coordinates")
@@ -93,7 +128,17 @@ def extract_text_from_area(x1, y1, x2, y2):
         print("Selection area too small")
         return None
 
-    temp_file = None
+    # Check if user is authenticated
+    if not is_authenticated():
+        # Show login modal
+        from src.ui.dialogs.auth_modal import create_auth_modal
+        login_modal = create_auth_modal(parent_window, "Authentication Required")
+        is_authenticate = login_modal.show() if login_modal else False
+        
+        if not is_authenticate:
+            print("Authentication required to use OCR features")
+            return None
+
     screenshot_taker = None
     
     try:
@@ -111,50 +156,167 @@ def extract_text_from_area(x1, y1, x2, y2):
         # Apply preprocessing
         img = preprocess_image(img)
         
-        # Save the processed image to a temp file
-        temp_dir = tempfile.gettempdir()
-        temp_file = os.path.join(temp_dir, "textextract_debug.png")
-        img.save(temp_file)
+        # Convert image to base64
+        img_base64 = image_to_base64(img)
         
         try:
-            # Extract text using PaddleOCR
-            ocr = get_paddle_ocr()
+            # Get API session
+            session = get_api_session()
             
-            # Run OCR
-            result = ocr.ocr(temp_file, cls=True)
+            # Get authentication token
+            token = get_auth_token()
+            device_id = get_device_id()
             
-            # Process the OCR results
-            text = ""
-            if result and len(result) > 0:
-                # Handle PaddleOCR 2.10.0 result structure
-                if isinstance(result[0], list):
-                    # New structure in PaddleOCR 2.10.0
-                    lines = []
-                    for line in result[0]:
-                        if len(line) >= 2:  # Ensure it contains text
-                            lines.append(line[1][0])  # Extract text content
-                    text = "\n".join(lines)
-                else:
-                    # Older structure fallback
-                    lines = []
-                    for line in result:
-                        for word_info in line:
-                            if len(word_info) >= 2:
-                                lines.append(word_info[1][0])
-                    text = "\n".join(lines)
+            # Use the token itself as the CSRF token (common pattern for API auth)
+            csrf_token = token
+            
+            # Prepare headers
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "X-Device-ID": device_id,
+                "X-App-Version": os.getenv("APP_VERSION", "1.0.0"),
+                "Content-Type": "application/json",
+                "X-CSRF-TOKEN": csrf_token,
+                "Origin": "http://localhost:3000"  # Add Origin header to satisfy CSRF protection
+            }
+            
+            # Send the image to the backend proxy service
+            response = session.post(
+                PROXY_API_URL,
+                headers=headers,
+                json={
+                    "image": img_base64,
+                    "language": DEFAULT_LANGUAGE
+                },
+                timeout=30  # Set an appropriate timeout
+            )
+            
+            # Check for errors
+            if response.status_code == 401 or response.status_code == 403:
+                # Try to parse the error response first
+                try:
+                    error_data = response.json()
+                    error_message = error_data.get('error', '')
                     
-        except ImportError as e:
-            print(f"OCR Error - PaddleOCR import failed: {e}")
-            text = f"ERROR: PaddleOCR could not be initialized. Please install required packages."
-            print(f"Required versions: paddlepaddle==2.6.2 paddleocr==2.10.0")
+                    # Token expired or invalid - try to refresh token
+                    refresh_success, refresh_message = refresh_token()
+                    
+                    if refresh_success:
+                        # Try again with new token
+                        token = get_auth_token()
+                        headers["Authorization"] = f"Bearer {token}"
+                        headers["X-CSRF-TOKEN"] = token  # Update CSRF token as well
+                        
+                        # Retry the request
+                        response = session.post(
+                            PROXY_API_URL,
+                            headers=headers,
+                            json={
+                                "image": img_base64,
+                                "language": DEFAULT_LANGUAGE
+                            },
+                            timeout=30
+                        )
+                    else:
+                        # Show login modal to get new credentials
+                        from src.ui.dialogs.auth_modal import create_auth_modal
+                        login_modal = create_auth_modal(parent_window, "Session Expired")
+                        is_authenticate = login_modal.show() if login_modal else False
+                        
+                        if not is_authenticate:
+                            print("Authentication required to use OCR features")
+                            return None
+                        
+                        # Try again with new token
+                        token = get_auth_token()
+                        headers["Authorization"] = f"Bearer {token}"
+                        headers["X-CSRF-TOKEN"] = token  # Update CSRF token as well
+                        
+                        # Retry the request
+                        response = session.post(
+                            PROXY_API_URL,
+                            headers=headers,
+                            json={
+                                "image": img_base64,
+                                "language": DEFAULT_LANGUAGE
+                            },
+                            timeout=30
+                        )
+                except:
+                    # If we can't parse the error, proceed with normal flow
+                    pass
+                    
+            elif response.status_code == 429:
+                # Rate limiting error - subscription limit reached
+                try:
+                    error_data = response.json()
+                    limit = error_data.get('limit', 20)
+                    
+                    # Show upgrade dialog
+                    upgrade_result = show_upgrade_dialog(parent_window, limit, limit)
+                    
+                    return "ERROR: Daily OCR usage limit reached. Please try again tomorrow or upgrade your plan."
+                except:
+                    return "ERROR: Daily OCR usage limit reached. Please try again tomorrow or upgrade your plan."
             
-        if text:
-            copy_to_clipboard(text)
-        return text.strip()
+            # Check for device limit error
+            elif response.status_code == 403 and "device limit" in response.text.lower():
+                # Device limit reached
+                show_device_limit_dialog(parent_window)
+                return "ERROR: Device limit reached. Please use one of your existing devices or upgrade your plan."
+            
+            # Check if the response is successful
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    
+                    # Extract the text from the response
+                    text = data.get("text", "")
+                    
+                    # Get meta information
+                    meta = data.get("meta", {})
+                    remaining_requests = meta.get("remaining_requests", 0)
+                    
+                    # Show warning if nearing the limit (less than 20% remaining)
+                    if "meta" in data and remaining_requests <= 2:
+                        root = tk.Tk() if parent_window is None else tk.Toplevel(parent_window)
+                        root.withdraw()
+                        
+                        messagebox.showwarning(
+                            "Running Low on OCR Requests",
+                            f"You have {remaining_requests} OCR requests remaining today. " +
+                            "Consider upgrading your plan for more requests.",
+                            parent=parent_window if parent_window else root
+                        )
+                        
+                        if parent_window is None:
+                            root.destroy()
+
+                    copy_to_clipboard(text)
+                    
+                    return text
+                except Exception as e:
+                    print(f"Error parsing response: {e}")
+                    return None
+            else:
+                try:
+                    error_data = response.json()
+                    error_message = error_data.get('error', 'Unknown error')
+                    print(f"API error: {error_message}")
+                    return f"ERROR: {error_message}"
+                except:
+                    print(f"API error: {response.text}")
+                    return f"ERROR: API request failed with status code {response.status_code}"
+        
+        except Exception as e:
+            print(f"Error making API request: {e}")
+            return None
+            
     except Exception as e:
-        print(f"OCR Error: {e}")
+        print(f"Error capturing screenshot: {e}")
         return None
+    
     finally:
-        # Clean up resources
+        # Ensure screenshot taker is cleaned up
         if screenshot_taker:
             screenshot_taker.close()

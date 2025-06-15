@@ -6,8 +6,11 @@ import sys
 from screeninfo import get_monitors
 
 # OCR Configuration
-# Default language for OCR (using PaddleOCR language codes)
+# Default language for OCR 
 DEFAULT_LANGUAGE = 'en'  # English
+
+# Together.ai API key for Qwen2-VL
+TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "")
 
 CONFIG_FILE = "config.json"
 
@@ -51,25 +54,28 @@ def load_selected_monitor():
     return None
 
 # Update OCR settings
-def save_ocr_settings(language=DEFAULT_LANGUAGE):
-    config = load_config()
-    config.update({
-        "ocr": {
-            "language": language
-        }
-    })
-    save_config(config)
+def save_ocr_settings(language=None):
+    """Save OCR settings to a configuration file."""
+    config = {
+        "language": language or DEFAULT_LANGUAGE,
+        "together_api_key": TOGETHER_API_KEY
+    }
     
-    # Update global settings
-    global DEFAULT_LANGUAGE
-    DEFAULT_LANGUAGE = language
+    config_dir = os.path.expanduser("~/.textextract")
+    os.makedirs(config_dir, exist_ok=True)
+    
+    config_file = os.path.join(config_dir, "config.json")
+    with open(config_file, "w") as f:
+        json.dump(config, f, indent=4)
 
-# Load OCR settings
 def load_ocr_settings():
-    config = load_config()
-    if "ocr" in config:
-        global DEFAULT_LANGUAGE
-        DEFAULT_LANGUAGE = config["ocr"].get("language", DEFAULT_LANGUAGE)
+    """Load OCR settings from configuration file."""
+    config_file = os.path.expanduser("~/.textextract/config.json")
+    if os.path.exists(config_file):
+        with open(config_file, "r") as f:
+            config = json.load(f)
+            return config.get("language", DEFAULT_LANGUAGE), config.get("together_api_key", "")
+    return DEFAULT_LANGUAGE, ""
 
 # Load OCR settings on module import
 load_ocr_settings()

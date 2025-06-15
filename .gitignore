@@ -4,6 +4,8 @@ TextExtract_Setup.exe
 *.msi
 *.app
 
+/frontend/node_modules
+
 # Python bytecode
 __pycache__/
 *.py[cod]
@@ -20,11 +22,12 @@ Include/
 Lib/
 Scripts/
 pyvenv.cfg
-.env
+*.env
 .venv
 env/
 venv/
 ENV/
+
 
 # PyInstaller
 *.manifest

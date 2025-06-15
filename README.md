@@ -10,6 +10,8 @@ TextExtract is a screen text extraction tool using OCR (Optical Character Recogn
 - **System Tray Integration**: Stays out of your way in the system tray until you need it
 - **Keyboard Shortcuts**: Quick access using convenient keyboard shortcuts
 - **Desktop Integration**: Proper Windows desktop integration with Start Menu entries and desktop shortcuts
+- **Subscription Plans**: Free and premium tiers with flexible payment options (PayPal and Stripe)
+- **User Account Management**: Web portal for managing your subscription and profile
 
 ## Installation
 
@@ -89,6 +91,21 @@ Alternatively:
 1. Open the Control Panel > Programs > Programs and Features
 2. Select "TextExtract" and click "Uninstall"
 
+## Subscription Plans
+
+TextExtract offers different subscription tiers to meet your needs:
+
+- **Free Tier**: Basic access with limited monthly OCR requests and device connections
+- **Basic Tier**: Increased monthly OCR requests, multiple device support, and priority processing
+
+### Payment Options
+
+TextExtract supports the following payment methods:
+- **Stripe**: Secure credit card payments
+- **PayPal**: Convenient PayPal account payments
+
+All payments are processed securely through our trusted payment processors. Subscription management is available through the web portal.
+
 ## License
 
 TextExtract is released under the MIT License. See the [LICENSE](LICENSE) file for details.
@@ -98,7 +115,10 @@ TextExtract is released under the MIT License. See the [LICENSE](LICENSE) file f
 - [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) for optical character recognition
 - [PyInstaller](https://pyinstaller.org) for application packaging
 - [NSIS](https://nsis.sourceforge.io) for the installer system
+- [Stripe](https://stripe.com) for payment processing
+- [PayPal](https://paypal.com) for payment processing
+- [Together.ai](https://together.ai) for advanced OCR capabilities
 
 ---
 
-© 2023-2024 TextExtract. All rights reserved.
+© 2023-2025 TextExtract. All rights reserved.
