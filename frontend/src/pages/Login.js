@@ -13,10 +13,7 @@ import {
 } from '@mui/material';
 import { useLocation, useNavigate, Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import axios from 'axios';
-import LoadingSpinner from '../components/LoadingSpinner';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+import { api, API_URL } from '../services/api';
 
 function Login() {
   const [email, setEmail] = useState('');
@@ -39,7 +36,6 @@ function Login() {
     const redirectUri = queryParams.get('redirect_uri');
     const deviceId = queryParams.get('device_id');
     const state = queryParams.get('state');
-    console.log('redirectUri', redirectUri)
     if (redirectUri) {
       setIsDesktopAuth(true);
       setRedirectParams({
@@ -59,7 +55,7 @@ function Login() {
 
 
   const alreadyLoggedIn = async () => {
-    const response = await axiosAuth.post(`${API_URL}/auth/direct-web-login`, {
+    const response = await axiosAuth.post(`/auth/direct-web-login`, {
       email:user.email,
       redirect_uri: redirectParams.redirect_uri,
       device_id: redirectParams.device_id,
@@ -80,7 +76,7 @@ function Login() {
     try {
       if (isDesktopAuth && redirectParams) {
         // This is a desktop app authentication request
-        const response = await axios.post(`${API_URL}/auth/complete-web-login`, {
+        const response = await api.post(`/auth/complete-web-login`, {
           email,
           password,
           redirect_uri: redirectParams.redirect_uri,

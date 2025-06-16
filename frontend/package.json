@@ -22,10 +22,14 @@
   },
   "scripts": {
     "start": "react-scripts start",
+    "start:dev": "cross-env REACT_APP_API_URL=http://localhost:5000 react-scripts start",
+    "start:prod": "cross-env REACT_APP_API_URL=https://textextract.onrender.com react-scripts start",
     "build": "react-scripts build",
+    "build:dev": "cross-env REACT_APP_API_URL=http://localhost:5000 react-scripts build",
+    "build:prod": "cross-env REACT_APP_API_URL=https://textextract.onrender.com react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "dev": " nodemon npm start"
+    "dev": "nodemon npm run start:dev"
   },
   "eslintConfig": {
     "extends": [
@@ -44,5 +48,8 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3"
   }
 }

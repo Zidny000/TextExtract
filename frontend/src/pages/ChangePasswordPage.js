@@ -6,11 +6,10 @@ import {
   Typography,
   Paper,
   TextField,
-  Button,
-  Alert,
+  Button,  Alert,
 } from '@mui/material';
 import { useAuth } from '../context/AuthContext';
-import axios from 'axios';
+import { api } from '../services/api';
 
 const ChangePasswordPage = () => {
   const { user } = useAuth();
@@ -39,10 +38,8 @@ const ChangePasswordPage = () => {
     if (formData.newPassword !== formData.confirmPassword) {
       setError('New passwords do not match');
       return;
-    }
-
-    try {
-      const response = await axios.post('http://localhost:5000/auth/change-password', {
+    }    try {
+      const response = await api.post('/auth/change-password', {
         current_password: formData.currentPassword,
         new_password: formData.newPassword,
       });

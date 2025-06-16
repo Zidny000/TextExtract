@@ -6,10 +6,9 @@ import {
   Typography,
   Paper,
   TextField,
-  Button,
-  Alert,
+  Button,  Alert,
 } from '@mui/material';
-import axios from 'axios';
+import { api } from '../services/api';
 
 const ForgotPasswordPage = () => {
   const navigate = useNavigate();
@@ -20,10 +19,8 @@ const ForgotPasswordPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setSuccess('');
-
-    try {
-      const response = await axios.post('http://localhost:5000/auth/request-password-reset', {
+    setSuccess('');    try {
+      const response = await api.post('/auth/request-password-reset', {
         email: email,
       });
 

@@ -15,8 +15,23 @@ npm install
 ```
 
 2. Start the development server:
+
+For development (using local backend at http://localhost:5000):
 ```bash
-npm start
+npm run start:dev
+```
+or use the provided batch file:
+```bash
+start_dev.bat
+```
+
+For production (using deployed backend at https://textextract.onrender.com):
+```bash
+npm run start:prod
+```
+or use the provided batch file:
+```bash
+start_prod.bat
 ```
 
 The application will run on http://localhost:3000
@@ -37,4 +52,31 @@ The application will run on http://localhost:3000
 
 ## Backend Integration
 
-The frontend is configured to communicate with the backend server running on http://localhost:5000. Make sure the backend server is running before using the frontend application.
+The frontend is configured to communicate with the backend server using environment variables:
+
+- Development mode: http://localhost:5000
+- Production mode: https://textextract.onrender.com
+
+## Building for Deployment
+
+To build the application for deployment:
+
+For development build:
+```bash
+npm run build:dev
+```
+or use the provided batch file:
+```bash
+build_dev.bat
+```
+
+For production build:
+```bash
+npm run build:prod
+```
+or use the provided batch file:
+```bash
+build_prod.bat
+```
+
+The build artifacts will be stored in the `build/` directory.

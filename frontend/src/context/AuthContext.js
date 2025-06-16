@@ -1,17 +1,14 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import axios from 'axios';
+import { api, API_URL } from '../services/api';
 import { jwtDecode } from "jwt-decode";
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 const TOKEN_KEY = 'textextract_token';
 const REFRESH_TOKEN_KEY = 'textextract_refresh_token';
 const USER_KEY = 'textextract_user';
 const CSRF_TOKEN_KEY = 'textextract_csrf_token';
 
-// Create a new axios instance to handle auth interceptors
-const axiosAuth = axios.create({
-  baseURL: API_URL,
-});
+// Use the API instance from our services
+const axiosAuth = api;
 
 const AuthContext = createContext(null);
 
@@ -88,8 +85,8 @@ export const AuthProvider = ({ children }) => {
         return false;
       }
       
-      const response = await axios.post(
-        `${API_URL}/auth/refresh`,
+      const response = await axiosAuth.post(
+        `/auth/refresh`,
         { refresh_token: refreshToken }
       );
       
@@ -166,7 +163,7 @@ export const AuthProvider = ({ children }) => {
 
   const signup = async (email, password, fullName) => {
     try {
-      const response = await axios.post(`${API_URL}/auth/register`, {
+      const response = await axiosAuth.post(`/auth/register`, {
         email,
         password,
         full_name: fullName,

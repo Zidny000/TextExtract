@@ -6,10 +6,9 @@ import {
   Typography,
   Paper,
   TextField,
-  Button,
-  Alert,
+  Button,  Alert,
 } from '@mui/material';
-import axios from 'axios';
+import { api } from '../services/api';
 
 const ResetPasswordPage = () => {
   const navigate = useNavigate();
@@ -27,10 +26,8 @@ const ResetPasswordPage = () => {
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
-    }
-
-    try {
-      const response = await axios.post('http://localhost:5000/auth/reset-password', {
+    }    try {
+      const response = await api.post('/auth/reset-password', {
         token: token,
         new_password: password,
       });

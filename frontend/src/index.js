@@ -1,35 +1,13 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import axios from 'axios';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
+import { API_URL } from './services/api';
 
-// Set up default axios configuration
-axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-axios.defaults.headers.post['Content-Type'] = 'application/json';
-axios.defaults.headers.put['Content-Type'] = 'application/json';
-axios.defaults.headers.patch['Content-Type'] = 'application/json';
-
-// Set up CSRF protection for all requests
-axios.interceptors.request.use(config => {
-  // Skip for GET requests and auth endpoints
-  if (config.method === 'get' || 
-      config.url.startsWith('/auth/login') || 
-      config.url.startsWith('/auth/register') ||
-      config.url.startsWith('/auth/refresh')) {
-    return config;
-  }
-  
-  // Add CSRF token from localStorage if available
-  const csrfToken = localStorage.getItem('textextract_csrf_token');
-  if (csrfToken) {
-    config.headers['X-CSRF-TOKEN'] = csrfToken;
-  }
-  
-  return config;
-});
+// Log the current API URL to verify environment config
+console.log(`Using API URL: ${API_URL}`);
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
