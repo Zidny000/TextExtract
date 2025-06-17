@@ -19,11 +19,13 @@ logger = logging.getLogger(__name__)
 class SubscriptionBadge(ttk.Frame):
     """A badge showing subscription information and status"""
     
-    def __init__(self, parent, *args, **kwargs):
+    def __init__(self, parent, *args, **kwargs):        
         super().__init__(parent, *args, **kwargs)
         
+        from src.config import get_api_url
+        
         self.parent = parent
-        self.api_url = "http://localhost:5000"
+        self.api_url = get_api_url()
         
         # Data
         self.plan_data = None

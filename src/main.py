@@ -413,18 +413,17 @@ def main():
             if 0 <= monitor_index < len(monitors):
                 app_state.selected_monitor = monitors[monitor_index]
                 save_selected_monitor(app_state.selected_monitor)
-                print(f"Monitor changed to: {app_state.selected_monitor.width}x{app_state.selected_monitor.height}")
-
+                print(f"Monitor changed to: {app_state.selected_monitor.width}x{app_state.selected_monitor.height}")        
         def get_selected_monitor():
             return app_state.selected_monitor
-        
         
         def open_profile_in_browser():
             """Open the user profile in the web browser"""
             print("Opening profile page in web browser...")
             try:
                 # Use the auth module's function to open the browser URL
-                open_browser_url("http://localhost:3000/profile")
+                from src.config import get_frontend_url
+                open_browser_url(f"{get_frontend_url()}/profile")
             except Exception as e:
                 print(f"Error opening profile in browser: {e}")
                 print(traceback.format_exc())

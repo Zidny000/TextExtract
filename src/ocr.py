@@ -11,13 +11,13 @@ import tkinter as tk
 from tkinter import messagebox
 from PIL import Image, ImageEnhance
 from mss import mss
-from src.config import DEFAULT_LANGUAGE
+from src.config import DEFAULT_LANGUAGE, get_api_url, get_frontend_url
 from src.clipboard import copy_to_clipboard
 from src.auth import is_authenticated, get_auth_token, refresh_token, get_device_id
 
 # Configuration for the proxy service
-# For local development, use localhost
-PROXY_API_URL = "http://localhost:5000/api/ocr"
+# Use the centralized API URL configuration
+PROXY_API_URL = f"{get_api_url()}/api/ocr"
 
 # Initialize API client with a lock to prevent multiple initializations
 api_lock = threading.Lock()
@@ -71,8 +71,7 @@ def show_upgrade_dialog(parent_window, current_count, max_count):
     root = tk.Tk() if parent_window is None else tk.Toplevel(parent_window)
     root.withdraw()  # Hide the root window
     
-    result = messagebox.askyesno(
-        "Subscription Limit Reached",
+    result = messagebox.askyesno(        "Subscription Limit Reached",
         f"You have used {current_count} of your {max_count} daily OCR requests.\n\n"
         "Would you like to upgrade your subscription plan for more requests?",
         parent=parent_window if parent_window else root
@@ -81,7 +80,7 @@ def show_upgrade_dialog(parent_window, current_count, max_count):
     if result:
         # Open subscription page in browser
         import webbrowser
-        webbrowser.open("http://localhost:3000/subscription")
+        webbrowser.open(f"{get_frontend_url()}/subscription")
     
     if parent_window is None:
         root.destroy()
@@ -93,8 +92,7 @@ def show_device_limit_dialog(parent_window):
     root = tk.Tk() if parent_window is None else tk.Toplevel(parent_window)
     root.withdraw()  # Hide the root window
     
-    result = messagebox.askyesno(
-        "Device Limit Reached",
+    result = messagebox.askyesno(        "Device Limit Reached",
         "You have reached the maximum number of devices allowed on your current plan.\n\n"
         "Would you like to upgrade your subscription for more devices?",
         parent=parent_window if parent_window else root
@@ -103,7 +101,7 @@ def show_device_limit_dialog(parent_window):
     if result:
         # Open subscription page in browser
         import webbrowser
-        webbrowser.open("http://localhost:3000/subscription")
+        webbrowser.open(f"{get_frontend_url()}/subscription")
     
     if parent_window is None:
         root.destroy()
@@ -173,11 +171,10 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
             # Prepare headers
             headers = {
                 "Authorization": f"Bearer {token}",
-                "X-Device-ID": device_id,
-                "X-App-Version": os.getenv("APP_VERSION", "1.0.0"),
+                "X-Device-ID": device_id,                "X-App-Version": os.getenv("APP_VERSION", "1.0.0"),
                 "Content-Type": "application/json",
                 "X-CSRF-TOKEN": csrf_token,
-                "Origin": "http://localhost:3000"  # Add Origin header to satisfy CSRF protection
+                "Origin": get_frontend_url()  # Add Origin header to satisfy CSRF protection
             }
             
             # Send the image to the backend proxy service

@@ -12,6 +12,27 @@ DEFAULT_LANGUAGE = 'en'  # English
 # Together.ai API key for Qwen2-VL
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "")
 
+# API Configuration
+# Set to True to use production API, False to use local development API
+USE_PRODUCTION_API = os.getenv("USE_PRODUCTION_API", "False").lower() == "true"
+
+# API URLs
+DEV_API_URL = "http://localhost:5000"
+PROD_API_URL = "https://textextract.onrender.com"
+
+# Frontend URLs
+DEV_FRONTEND_URL = "http://localhost:3000"
+PROD_FRONTEND_URL = "https://textextract1.onrender.com"  # Update this if your frontend URL is different
+
+# Get the appropriate API URL based on environment
+def get_api_url():
+    print(USE_PRODUCTION_API)
+    return PROD_API_URL if USE_PRODUCTION_API else DEV_API_URL
+
+# Get the appropriate frontend URL based on environment
+def get_frontend_url():
+    return PROD_FRONTEND_URL if USE_PRODUCTION_API else DEV_FRONTEND_URL
+
 CONFIG_FILE = "config.json"
 
 def save_config(config):

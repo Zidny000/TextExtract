@@ -20,8 +20,11 @@ logger = logging.getLogger("auth")
 
 print("Initializing auth module...")
 
-# API Base URL - change this to your production URL when deploying
-API_BASE_URL = "http://localhost:5000"
+# Import API configuration
+from src.config import get_api_url, get_frontend_url
+
+# API Base URL - centralized configuration
+API_BASE_URL = get_api_url()
 print(f"Using API endpoint: {API_BASE_URL}")
 
 # Auth callback server settings
