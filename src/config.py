@@ -17,21 +17,23 @@ TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "")
 USE_PRODUCTION_API = os.getenv("USE_PRODUCTION_API", "False").lower() == "true"
 
 # API URLs
-DEV_API_URL = "http://localhost:5000"
-PROD_API_URL = "https://textextract.onrender.com"
+DEV_PROTOCOL = "http"
+PROD_PROTOCOL = "https"
+DEV_DOMAIN = "localhost:5000"
+PROD_DOMAIN = "textextract.onrender.com"
 
 # Frontend URLs
-DEV_FRONTEND_URL = "http://localhost:3000"
-PROD_FRONTEND_URL = "https://textextract1.onrender.com"  # Update this if your frontend URL is different
+DEV_FRONTEND_DOMAIN = "localhost:3000"
+PROD_FRONTEND_DOMAIN = "textextract1.onrender.com"  # Update this if your frontend URL is different
 
 # Get the appropriate API URL based on environment
 def get_api_url():
     print(USE_PRODUCTION_API)
-    return PROD_API_URL if USE_PRODUCTION_API else DEV_API_URL
+    return f"{PROD_PROTOCOL}://{PROD_DOMAIN}" if USE_PRODUCTION_API else f"{DEV_PROTOCOL}://{DEV_DOMAIN}"
 
 # Get the appropriate frontend URL based on environment
 def get_frontend_url():
-    return PROD_FRONTEND_URL if USE_PRODUCTION_API else DEV_FRONTEND_URL
+    return f"{PROD_PROTOCOL}://{PROD_FRONTEND_DOMAIN}" if USE_PRODUCTION_API else f"{DEV_PROTOCOL}://{DEV_FRONTEND_DOMAIN}"
 
 CONFIG_FILE = "config.json"
 

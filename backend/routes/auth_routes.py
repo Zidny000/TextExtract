@@ -32,7 +32,7 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USERNAME = os.environ.get("SMTP_USERNAME", "")
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "noreply@textextract.com")
-APP_URL = os.environ.get("APP_URL", "http://localhost:3000")
+APP_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 AUTH_CALLBACK_PORT = os.environ.get("AUTH_CALLBACK_PORT", "9845")
 
 # Backend API URL for direct API access (for verification links, etc.)

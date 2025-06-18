@@ -27,9 +27,15 @@ from src.config import get_api_url, get_frontend_url
 API_BASE_URL = get_api_url()
 print(f"Using API endpoint: {API_BASE_URL}")
 
+# Helper function to determine appropriate protocol for local callbacks
+def get_callback_protocol():
+    # In production mode, we might need HTTPS
+    # For local development, we use HTTP
+    return "https" if "https://" in get_api_url() else "http"
+
 # Auth callback server settings
 AUTH_CALLBACK_PORT = 9845  # Choose an available port
-AUTH_REDIRECT_URL = f"http://localhost:{AUTH_CALLBACK_PORT}/callback"
+AUTH_REDIRECT_URL = f"{get_callback_protocol()}://localhost:{AUTH_CALLBACK_PORT}/callback"
 
 # Key for storing auth token in keyring
 SERVICE_NAME = "TextExtract"
@@ -494,10 +500,10 @@ def start_auth_callback_server(auth_callback):
             # If we got this far, there's something already listening on this port
             # Let's try a different port
             alt_port = AUTH_CALLBACK_PORT + 1
-            if not is_port_in_use(alt_port):
+            if not is_port_in_use(alt_port):                
                 print(f"Using alternative port {alt_port} for callback server")
                 AUTH_CALLBACK_PORT = alt_port
-                AUTH_REDIRECT_URL = f"http://localhost:{AUTH_CALLBACK_PORT}/callback"
+                AUTH_REDIRECT_URL = f"{get_callback_protocol()}://localhost:{AUTH_CALLBACK_PORT}/callback"
             else:
                 print(f"Both primary and alternative ports are in use. Cannot start callback server.")
                 return None
@@ -671,10 +677,8 @@ def web_authenticate(callback=None):
     print(f"Using device ID: {device_id}")
     
     # Generate a state parameter for security
-    state = str(uuid.uuid4())
-    
-    # Create a direct auth URL for already logged-in users
-    direct_auth_url = urllib.parse.quote(f"http://localhost:{AUTH_CALLBACK_PORT}/direct_auth")
+    state = str(uuid.uuid4())    # Create a direct auth URL for already logged-in users
+    direct_auth_url = urllib.parse.quote(f"{get_callback_protocol()}://localhost:{AUTH_CALLBACK_PORT}/direct_auth")
     
     # Construct the authentication URL
     auth_url = f"{API_BASE_URL}/auth/web-login?redirect_uri={urllib.parse.quote(AUTH_REDIRECT_URL)}&device_id={device_id}&state={state}&auto_login=true&direct_auth_url={direct_auth_url}"
@@ -1017,11 +1021,6 @@ def get_user_profile(parent_window=None):
         return None, f"Error fetching profile: {str(e)}"
 
 # Utility function to handle password reset tokens from URLs
-def handle_password_reset_token(parent, token):
-    """Handle password reset token from URL"""
-    reset_dialog = PasswordResetDialog(parent, token)
-    reset_dialog.show()
-
 def open_browser_url(url):
     """Open URL in default browser"""
     try:
