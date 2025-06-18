@@ -1,13 +1,8 @@
 {
-  "root": "build/",
-  "clean_urls": true,
-  "routes": {
-    "/**": "index.html"
-  },
-  "https_only": true,
-  "headers": {
-    "/**": {
-      "Cache-Control": "public, max-age=0, must-revalidate"
+  "routes": [
+    {
+      "src": "/.*",
+      "dest": "/index.html"
     }
-  }
+  ]
 }
