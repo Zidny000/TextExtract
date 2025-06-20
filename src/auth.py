@@ -29,9 +29,7 @@ print(f"Using API endpoint: {API_BASE_URL}")
 
 # Helper function to determine appropriate protocol for local callbacks
 def get_callback_protocol():
-    # In production mode, we might need HTTPS
-    # For local development, we use HTTP
-    return "https" if "https://" in get_api_url() else "http"
+    return "http" 
 
 # Auth callback server settings
 AUTH_CALLBACK_PORT = 9845  # Choose an available port
