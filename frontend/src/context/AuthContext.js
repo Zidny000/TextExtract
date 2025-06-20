@@ -34,6 +34,9 @@ export const AuthProvider = ({ children }) => {
 
   // Setup axios interceptor to handle token expiration
   const setupInterceptors = useCallback(() => {
+    // Clear any existing interceptors
+    axiosAuth.interceptors.response.eject(axiosAuth.interceptors.response.use(() => {}));
+    
     axiosAuth.interceptors.response.use(
       (response) => response,
       async (error) => {
@@ -43,14 +46,21 @@ export const AuthProvider = ({ children }) => {
         if (error.response?.status === 401 && !originalRequest._retry && refreshToken) {
           originalRequest._retry = true;
           
-          // Try to refresh the token
-          const refreshSuccess = await refreshAccessToken();
-          
-          if (refreshSuccess) {
-            // Update the authorization header with the new token
-            originalRequest.headers['Authorization'] = `Bearer ${token}`;
-            // Retry the original request
-            return axiosAuth(originalRequest);
+          try {
+            // Try to refresh the token
+            const refreshSuccess = await refreshAccessToken();
+            
+            if (refreshSuccess) {
+              // Update the authorization header with the new token
+              originalRequest.headers['Authorization'] = `Bearer ${localStorage.getItem(TOKEN_KEY)}`;
+              // Retry the original request
+              return axiosAuth(originalRequest);
+            }
+          } catch (refreshError) {
+            console.error("Error during token refresh:", refreshError);
+            // Logout on refresh failure
+            await logout();
+            return Promise.reject(refreshError);
           }
         }
         
@@ -76,18 +86,21 @@ export const AuthProvider = ({ children }) => {
 
   // Refresh access token
   const refreshAccessToken = async () => {
+
+    
+    
     if (refreshingToken) return false;
-    
+   
     setRefreshingToken(true);
-    
+    const storedRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
     try {
-      if (!refreshToken) {
+      if (!storedRefreshToken) {
         return false;
       }
       
       const response = await axiosAuth.post(
-        `/auth/refresh`,
-        { refresh_token: refreshToken }
+        `${API_URL}/auth/refresh`,
+        { refresh_token: storedRefreshToken }
       );
       
       const newToken = response.data.token;
@@ -100,25 +113,26 @@ export const AuthProvider = ({ children }) => {
       
       // Update axios default headers
       axiosAuth.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
-      
+    
       setRefreshingToken(false);
       return true;
     } catch (error) {
       console.error('Token refresh error:', error);
       
       // If refresh fails, log out
-      logout();
+      logout()
       setRefreshingToken(false);
       return false;
     }
   };
 
   // Initialize auth state from local storage on component mount
-  useEffect( () => {
+  useEffect(() => {
     const storedToken = localStorage.getItem(TOKEN_KEY);
     const storedRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
     const storedUser = localStorage.getItem(USER_KEY);
     const storedCsrfToken = localStorage.getItem(CSRF_TOKEN_KEY);
+    
 
     // Set CSRF token or generate a new one
     if (storedCsrfToken) {
@@ -128,27 +142,44 @@ export const AuthProvider = ({ children }) => {
       generateCsrfToken();
     }
 
-
-    if (storedToken && storedUser) {
-      if (isTokenExpired(storedToken) && storedRefreshToken) {
-        // Will attempt to refresh in setupInterceptors
+    const initAuth = async () => {
+      if (storedToken && storedRefreshToken) {
         setRefreshToken(storedRefreshToken);
-      } else {
-        setToken(storedToken);
-        // Set default Authorization header for all requests
-        axiosAuth.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-      }
 
-      const fetchUserData = async () => {
-        const resopnse = await axiosAuth.get('/users/profile');
-        setUser(resopnse.data.user);
+        if (isTokenExpired(storedToken)) {
+          // Token is expired, try to refresh it
+        
+          const refreshSuccess = await refreshAccessToken();
+          if (!refreshSuccess) {
+            // If refresh fails, clear everything
+              logout()
+          } else if (storedUser) {
+            // If refresh succeeds, set user from storage
+            try {
+              setUser(JSON.parse(storedUser));
+            } catch (e) {
+              console.error("Error parsing stored user:", e);
+            }
+          }
+        } else {
+          // Token is valid, set everything directly
+          setToken(storedToken);
+          axiosAuth.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+          
+          if (storedUser) {
+            try {
+              setUser(JSON.parse(storedUser));
+            } catch (e) {
+              console.error("Error parsing stored user:", e);
+            }
+          }
+        }
       }
-
-      fetchUserData()
       
-    }
-    
-    setLoading(false);
+      setLoading(false);
+    };
+
+    initAuth();
     
     // Return cleanup function
     return () => {
@@ -280,4 +311,4 @@ export const useAuth = () => {
   return context;
 };
 
-export default AuthContext; 
+export default AuthContext;
