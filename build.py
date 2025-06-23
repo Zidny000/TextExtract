@@ -9,6 +9,10 @@ from version import __version__
 
 def build_executable():
     print("Building TextExtract executable...")
+
+    # Define the environment variable for production build
+    build_env = os.environ.copy()
+    build_env["USE_PRODUCTION_API"] = "True"
     
     # Clean previous build artifacts
     if os.path.exists("build"):

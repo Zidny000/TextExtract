@@ -8,6 +8,8 @@ if exist "dist" rmdir /s /q "dist"
 
 pyinstaller --clean ...
 
+$env:USE_PRODUCTION_API = "True"
+
 echo Building executable with PyInstaller (console mode)...
 pyinstaller --noconfirm --onedir ^
   --name=TextExtract_Debug ^

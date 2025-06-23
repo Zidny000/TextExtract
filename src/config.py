@@ -16,6 +16,16 @@ TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "")
 # Set to True to use production API, False to use local development API
 USE_PRODUCTION_API = os.getenv("USE_PRODUCTION_API", "False").lower() == "true"
 
+USE_PRODUCTION_API = os.getenv("USE_PRODUCTION_API", "False").lower() == "true"
+
+# Check if this is a PyInstaller bundle
+if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+    # If running as compiled executable, always use production API
+    USE_PRODUCTION_API = True
+else:
+    # For development, use environment variable
+    USE_PRODUCTION_API = os.getenv("USE_PRODUCTION_API", "False").lower() == "true"
+
 # API URLs
 DEV_PROTOCOL = "http"
 PROD_PROTOCOL = "https"
