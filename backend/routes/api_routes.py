@@ -49,8 +49,8 @@ def ocr_proxy():
         # Check if user can make another request based on their plan
         if not User.can_make_request(g.user_id):
             return jsonify({
-                "error": "Daily API request limit reached",
-                "limit": g.user.get("max_requests_per_day", 50)
+                "error": "Monthly API request limit reached",
+                "limit": g.user.get("max_requests_per_month", 20)
             }), 429
         
         # Create an API request record for tracking
@@ -112,13 +112,13 @@ def ocr_proxy():
                 request_size_bytes=request_size,
                 response_size_bytes=response_size
             )
-        
+
         # Return the extracted text
         return jsonify({
             "text": text,
             "meta": {
                 "processing_time_ms": response_time_ms,
-                "remaining_requests": g.user.get("max_requests_per_day", 50) - User.get_monthly_request_count(g.user_id)
+                "remaining_requests": g.user.get("max_requests_per_month", 50) - User.get_monthly_request_count(g.user_id)
             }
         })
         

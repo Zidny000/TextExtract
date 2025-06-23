@@ -72,7 +72,7 @@ def show_upgrade_dialog(parent_window, current_count, max_count):
     root.withdraw()  # Hide the root window
     
     result = messagebox.askyesno(        "Subscription Limit Reached",
-        f"You have used {current_count} of your {max_count} daily OCR requests.\n\n"
+        f"You have used {current_count} of your {max_count} monthly OCR requests.\n\n"
         "Would you like to upgrade your subscription plan for more requests?",
         parent=parent_window if parent_window else root
     )
@@ -281,7 +281,7 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
                         
                         messagebox.showwarning(
                             "Running Low on OCR Requests",
-                            f"You have {remaining_requests} OCR requests remaining today. " +
+                            f"You have {remaining_requests} OCR requests remaining this month. " +
                             "Consider upgrading your plan for more requests.",
                             parent=parent_window if parent_window else root
                         )

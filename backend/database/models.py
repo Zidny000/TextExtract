@@ -155,7 +155,7 @@ class User:
             current_count = User.get_monthly_request_count(user_id)
             
             # Check if user is within limits
-            return current_count < max_requests
+            return current_count <= max_requests
         except Exception as e:
             logger.error(f"Error checking if user can make request: {str(e)}")
             return False
