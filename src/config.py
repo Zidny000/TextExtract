@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+import traceback
 from screeninfo import get_monitors
 
 # OCR Configuration
@@ -14,8 +15,6 @@ TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "")
 
 # API Configuration
 # Set to True to use production API, False to use local development API
-USE_PRODUCTION_API = os.getenv("USE_PRODUCTION_API", "False").lower() == "true"
-
 USE_PRODUCTION_API = os.getenv("USE_PRODUCTION_API", "False").lower() == "true"
 
 # Check if this is a PyInstaller bundle
@@ -45,30 +44,54 @@ def get_api_url():
 def get_frontend_url():
     return f"{PROD_PROTOCOL}://{PROD_FRONTEND_DOMAIN}" if USE_PRODUCTION_API else f"{DEV_PROTOCOL}://{DEV_FRONTEND_DOMAIN}"
 
-CONFIG_FILE = "config.json"
+def get_config_file_path():
+    """Get the appropriate config file path based on environment"""
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        # If running as compiled executable, use user's app data directory
+        config_dir = os.path.join(os.path.expanduser("~"), ".textextract")
+        os.makedirs(config_dir, exist_ok=True)
+        return os.path.join(config_dir, "config.json")
+    else:
+        # For development, use the current directory
+        return "config.json"
 
 def save_config(config):
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f)
+    config_file = get_config_file_path()
+    try:
+        with open(config_file, "w") as f:
+            json.dump(config, f)
+    except Exception as e:
+        print(f"Error saving config to {config_file}: {e}")
 
 def load_config():
-    if not os.path.exists(CONFIG_FILE):
+    config_file = get_config_file_path()
+    if not os.path.exists(config_file):
         return {}
-        
-    with open(CONFIG_FILE, "r") as f:
-        return json.load(f)
+    
+    try:
+        with open(config_file, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading config from {config_file}: {e}")
+        return {}
 
 def save_selected_monitor(monitor):
-    config = load_config()
-    config.update({
-        "monitor": {
-            "x": monitor.x,
-            "y": monitor.y,
-            "width": monitor.width,
-            "height": monitor.height
-        }
-    })
-    save_config(config)
+    try:
+        print(f"Saving monitor config: {monitor.width}x{monitor.height} at {monitor.x},{monitor.y}")
+        config = load_config()
+        config.update({
+            "monitor": {
+                "x": monitor.x,
+                "y": monitor.y,
+                "width": monitor.width,
+                "height": monitor.height
+            }
+        })
+        save_config(config)
+        print("Monitor configuration saved successfully")
+    except Exception as e:
+        print(f"Error saving monitor configuration: {e}")
+        print(traceback.format_exc())
 
 def load_selected_monitor():
     config = load_config()

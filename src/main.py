@@ -19,7 +19,7 @@ import logging
 from src.monitor_selector import MonitorSelector
 from src.overlay           import ScreenOverlay
 from src.ocr               import extract_text_from_area
-from src.config            import save_selected_monitor, load_selected_monitor
+from src.config            import save_selected_monitor, load_selected_monitor, get_config_file_path
 from src.visual_control    import FloatingIcon
 from src.auth              import (
     is_authenticated, refresh_token,
@@ -311,6 +311,15 @@ def main():
             auth_required = False
             print("Continuing with limited functionality (no authentication)")
 
+        # Debug: Print config file location
+        try:
+            from src.config import get_config_file_path
+            config_path = get_config_file_path()
+            print(f"Config file location: {config_path}")
+            print(f"Config file exists: {os.path.exists(config_path)}")
+        except Exception as e:
+            print(f"Error getting config path: {e}")
+        
         # Initialize application state
         print("Initializing application state...")
         app_state = AppState()
@@ -399,21 +408,47 @@ def main():
 
         def change_monitor_selection():
             # Temporarily make root visible to help with focus issues
-            root.update_idletasks()
-            
-            selector = MonitorSelector(root)  # Pass root as the parent
-            new_monitor = selector.start()
-            if new_monitor:
-                app_state.selected_monitor = new_monitor
-                save_selected_monitor(new_monitor)
-                print(f"Monitor changed to: {new_monitor.width}x{new_monitor.height}")
+            print("Starting monitor selection...")
+            try:
+                root.update_idletasks()
+                
+                # Ensure root is visible for proper dialog handling
+                root_was_withdrawn = root.state() == 'withdrawn'
+                if root_was_withdrawn:
+                    root.deiconify()
+                    root.update()
+                
+                selector = MonitorSelector(root)  # Pass root as the parent
+                new_monitor = selector.start()
+                
+                # Restore root state if it was withdrawn
+                if root_was_withdrawn:
+                    root.withdraw()
+                    
+                if new_monitor:
+                    app_state.selected_monitor = new_monitor
+                    save_selected_monitor(new_monitor)
+                    print(f"Monitor changed to: {new_monitor.width}x{new_monitor.height}")
+                else:
+                    print("Monitor selection cancelled")
+                    
+            except Exception as e:
+                print(f"Error during monitor selection: {e}")
+                print(traceback.format_exc())
+                messagebox.showerror("Error", f"Failed to change monitor: {str(e)}")
 
         def change_monitor_by_index(monitor_index):
-            monitors = get_monitors()
-            if 0 <= monitor_index < len(monitors):
-                app_state.selected_monitor = monitors[monitor_index]
-                save_selected_monitor(app_state.selected_monitor)
-                print(f"Monitor changed to: {app_state.selected_monitor.width}x{app_state.selected_monitor.height}")        
+            try:
+                monitors = get_monitors()
+                if 0 <= monitor_index < len(monitors):
+                    app_state.selected_monitor = monitors[monitor_index]
+                    save_selected_monitor(app_state.selected_monitor)
+                    print(f"Monitor changed to: {app_state.selected_monitor.width}x{app_state.selected_monitor.height}")
+                else:
+                    print(f"Invalid monitor index: {monitor_index}")
+            except Exception as e:
+                print(f"Error changing monitor by index: {e}")
+                print(traceback.format_exc())        
         def get_selected_monitor():
             return app_state.selected_monitor
         
@@ -607,6 +642,7 @@ def main():
         # Register hotkeys with thread-safe callbacks
         keyboard.add_hotkey('ctrl+alt+c', safe_capture)
         keyboard.add_hotkey('ctrl+alt+v', safe_toggle_floating_icon)
+        keyboard.add_hotkey('ctrl+alt+m', lambda: root.after(0, lambda: app_state.command_queue.put(("change_monitor", None))))
 
         # Create the initial floating icon
         create_floating_icon()
