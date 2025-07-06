@@ -1,6 +1,6 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
+import { ThemeProvider as MuiThemeProvider, createTheme } from '@mui/material/styles';
 import { Box } from '@mui/material';
 import CssBaseline from '@mui/material/CssBaseline';
 import Navbar from './components/Navbar';
@@ -14,13 +14,16 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import LogoutPage from './pages/LogoutPage';
 import { AuthProvider } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicOnlyRoute from './components/PublicOnlyRoute';
 import SubscriptionPage from './pages/SubscriptionPage';
 import SubscriptionSuccess from './pages/SubscriptionSuccess';
 import SubscriptionCancel from './pages/SubscriptionCancel';
+import ExampleComponent from './components/ExampleComponent';
+import ToastProvider from './components/ui/toast-provider';
 
-const theme = createTheme({
+const muiTheme = createTheme({
   palette: {
     primary: {
       main: '#1976d2',
@@ -33,18 +36,19 @@ const theme = createTheme({
 
 function App() {
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <AuthProvider>
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            minHeight: '100vh',
-          }}
-        >
-          <Navbar />
-          <Box component="main" sx={{ flexGrow: 1 }}>
+    <ThemeProvider>
+      <MuiThemeProvider theme={muiTheme}>
+        <CssBaseline />
+        <AuthProvider>          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              minHeight: '100vh',
+            }}
+          >
+            <ToastProvider />
+            <Navbar />
+            <Box component="main" sx={{ flexGrow: 1 }}>
             <Routes>
               {/* Public routes accessible to everyone */}
               <Route path="/" element={<LandingPage />} />
@@ -73,6 +77,9 @@ function App() {
                 } 
               />
               <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
+              
+              {/* UI Components Demo Route */}
+              <Route path="/ui-components" element={<ExampleComponent />} />
               
               {/* Protected routes that require authentication */}
               <Route 
@@ -120,6 +127,7 @@ function App() {
           <Footer />
         </Box>
       </AuthProvider>
+      </MuiThemeProvider>
     </ThemeProvider>
   );
 }
