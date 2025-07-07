@@ -1,8 +1,6 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { ThemeProvider as MuiThemeProvider, createTheme } from '@mui/material/styles';
 import { Box } from '@mui/material';
-import CssBaseline from '@mui/material/CssBaseline';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import LandingPage from './pages/LandingPage';
@@ -14,7 +12,6 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import LogoutPage from './pages/LogoutPage';
 import { AuthProvider } from './context/AuthContext';
-import { ThemeProvider } from './context/ThemeContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicOnlyRoute from './components/PublicOnlyRoute';
 import SubscriptionPage from './pages/SubscriptionPage';
@@ -23,23 +20,12 @@ import SubscriptionCancel from './pages/SubscriptionCancel';
 import ExampleComponent from './components/ExampleComponent';
 import ToastProvider from './components/ui/toast-provider';
 
-const muiTheme = createTheme({
-  palette: {
-    primary: {
-      main: '#1976d2',
-    },
-    secondary: {
-      main: '#dc004e',
-    },
-  },
-});
 
 function App() {
   return (
-    <ThemeProvider>
-      <MuiThemeProvider theme={muiTheme}>
-        <CssBaseline />
-        <AuthProvider>          <Box
+
+      <AuthProvider>          
+          <Box
             sx={{
               display: 'flex',
               flexDirection: 'column',
@@ -127,8 +113,6 @@ function App() {
           <Footer />
         </Box>
       </AuthProvider>
-      </MuiThemeProvider>
-    </ThemeProvider>
   );
 }
 

@@ -1,37 +1,33 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Container,
-  Box,
-  Typography,
-  Paper,
-  Button,
-  Grid,
-  Divider,
-  Alert,
-  LinearProgress,
-  Card,
-  CardContent,
-  List,
-  ListItem,
-  ListItemText,
-  TextField,
-  Rating,
-  Snackbar,
-} from '@mui/material';
 import { useAuth } from '../context/AuthContext';
-import axios from 'axios';
+import { Button } from "../components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
+import { Progress } from "../components/ui/progress";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import { Alert, AlertDescription } from "../components/ui/alert";
+import { toast } from 'sonner';
+import { 
+  User, 
+  Mail, 
+  Shield, 
+  BarChart3, 
+  CreditCard, 
+  Star,
+  LogOut,
+  Key,
+  CheckCircle,
+  XCircle,
+  Calendar,
+  Activity
+} from 'lucide-react';
 
 // Review form component
-const ReviewForm = () => {
-  const { axiosAuth } = useAuth();
+const ReviewForm = ({ axiosAuth }) => {
   const [rating, setRating] = useState(5);
   const [reviewText, setReviewText] = useState('');
-  const [snackbar, setSnackbar] = useState({
-    open: false,
-    message: '',
-    severity: 'success'
-  });
   const [submitting, setSubmitting] = useState(false);
   const [userReview, setUserReview] = useState(null);
 
@@ -64,12 +60,8 @@ const ReviewForm = () => {
         review_text: reviewText
       });
       
-      setSnackbar({
-        open: true,
-        message: 'Thank you for your feedback!',
-        severity: 'success'
-      });
-      
+      toast.success("Review submitted successfully!");
+
       // Update local state to show the review was submitted
       setUserReview({
         rating,
@@ -78,65 +70,69 @@ const ReviewForm = () => {
       });
     } catch (error) {
       console.error('Error submitting review:', error);
-      setSnackbar({
-        open: true,
-        message: 'Failed to submit review. Please try again.',
-        severity: 'error'
-      });
+      toast.error("Failed to submit review. Please try again.");
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <Paper elevation={2} sx={{ p: 3 }}>
-      <form onSubmit={handleSubmit}>
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="subtitle1" gutterBottom>
-            Your Rating
-          </Typography>
-          <Rating
-            name="user-rating"
-            value={rating}
-            onChange={(event, newValue) => {
-              setRating(newValue || 5);
-            }}
-            precision={1}
-            size="large"
-          />
-        </Box>
-        
-        <Box sx={{ mb: 2 }}>
-          <TextField
-            fullWidth
-            multiline
-            rows={4}
-            label="Your Review"
-            variant="outlined"
-            value={reviewText}
-            onChange={(e) => setReviewText(e.target.value)}
-            placeholder="Tell us about your experience with TextExtract..."
-            required
-          />
-        </Box>
-        
-        <Button 
-          type="submit"
-          variant="contained"
-          color="primary"
-          disabled={submitting || reviewText.length < 5}
-        >
-          {userReview ? 'Update Review' : 'Submit Review'}
-        </Button>
-      </form>
-      
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={6000}
-        onClose={() => setSnackbar({...snackbar, open: false})}
-        message={snackbar.message}
-      />
-    </Paper>
+    <Card className="border-0 shadow-lg bg-white/80 backdrop-blur-sm">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-slate-900">
+          <Star className="h-5 w-5 text-yellow-500" />
+          Share Your Experience
+        </CardTitle>
+        <CardDescription>
+          Help us improve by sharing your feedback about TextExtract
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <Label className="text-slate-700 font-medium">Your Rating</Label>
+            <div className="flex items-center gap-1 mt-2">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  type="button"
+                  onClick={() => setRating(star)}
+                  className={`p-1 transition-colors ${
+                    star <= rating ? 'text-yellow-400' : 'text-gray-300'
+                  } hover:text-yellow-400`}
+                >
+                  <Star className="h-6 w-6 fill-current" />
+                </button>
+              ))}
+              <span className="ml-2 text-sm text-slate-600">({rating}/5)</span>
+            </div>
+          </div>
+          
+          <div>
+            <Label htmlFor="review-text" className="text-slate-700 font-medium">
+              Your Review
+            </Label>
+            <textarea
+              id="review-text"
+              className="w-full mt-2 p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none transition-all duration-200"
+              rows={4}
+              value={reviewText}
+              onChange={(e) => setReviewText(e.target.value)}
+              placeholder="Tell us about your experience with TextExtract..."
+              required
+            />
+          </div>
+          
+          <Button 
+            type="submit"
+            disabled={submitting || reviewText.length < 5}
+            className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold px-6 py-2 transition-all duration-300"
+          >
+            {submitting ? 'Submitting...' : (userReview ? 'Update Review' : 'Submit Review')}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 };
 
@@ -186,151 +182,236 @@ const ProfilePage = () => {
   };
 
   return (
-    <Container maxWidth="md">
-      <Box sx={{ my: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          My Profile
-        </Typography>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
+      <div className="container mx-auto px-4 py-8 max-w-6xl">
+        {/* Header Section */}
+        <div className="text-center mb-12">
+          <h1 className="text-4xl lg:text-5xl font-bold bg-gradient-to-r from-slate-900 via-slate-800 to-slate-600 bg-clip-text text-transparent mb-4">
+            My Profile
+          </h1>
+          <p className="text-lg text-slate-600 max-w-2xl mx-auto">
+            Manage your TextExtract account, view usage statistics, and customize your experience
+          </p>
+        </div>
+
         {message && (
-          <Alert severity="success" sx={{ mb: 2 }}>
-            {message}
+          <Alert className="mb-6 border-green-200 bg-green-50">
+            <CheckCircle className="h-4 w-4 text-green-600" />
+            <AlertDescription className="text-green-800">{message}</AlertDescription>
           </Alert>
         )}
-        <Paper elevation={3} sx={{ p: 3 }}>
-          <Grid container spacing={3}>
-            <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Account Information
-              </Typography>
-              <Divider sx={{ mb: 2 }} />
-              <Typography>
-                <strong>Name:</strong> {user.full_name}
-              </Typography>
-              <Typography>
-                <strong>Email:</strong> {user.email}
-              </Typography>
-              <Typography>
-                <strong>Plan:</strong> {user.plan_type.toUpperCase() || 'Free'}
-              </Typography>
-              <Typography>
-                <strong>Status:</strong> {user.status || 'Active'}
-              </Typography>
-              <Typography>
-                <strong>Email Verified:</strong> {user.email_verified ? 'Yes' : 'No'}
-              </Typography>
-            </Grid>
 
-            <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Usage Statistics
-              </Typography>
-              <Divider sx={{ mb: 2 }} />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Account Information Card */}
+          <Card className="group hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 border-0 shadow-lg bg-white/80 backdrop-blur-sm">
+            <CardHeader className="pb-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
+                <User className="h-6 w-6 text-white" />
+              </div>
+              <CardTitle className="text-xl font-semibold text-slate-900">Account Information</CardTitle>
+              <CardDescription>Your personal account details</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+                <User className="h-4 w-4 text-slate-500" />
+                <div>
+                  <p className="text-sm text-slate-500">Name</p>
+                  <p className="font-medium text-slate-900">{user.full_name}</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+                <Mail className="h-4 w-4 text-slate-500" />
+                <div>
+                  <p className="text-sm text-slate-500">Email</p>
+                  <p className="font-medium text-slate-900">{user.email}</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+                <CreditCard className="h-4 w-4 text-slate-500" />
+                <div>
+                  <p className="text-sm text-slate-500">Plan</p>
+                  <Badge variant="secondary" className="bg-blue-100 text-blue-800 hover:bg-blue-200">
+                    {user.plan_type?.toUpperCase() || 'FREE'}
+                  </Badge>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+                <Activity className="h-4 w-4 text-slate-500" />
+                <div>
+                  <p className="text-sm text-slate-500">Status</p>
+                  <Badge variant="secondary" className="bg-green-100 text-green-800 hover:bg-green-200">
+                    {user.status || 'ACTIVE'}
+                  </Badge>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+                <Shield className="h-4 w-4 text-slate-500" />
+                <div className="flex items-center gap-2">
+                  <div>
+                    <p className="text-sm text-slate-500">Email Verified</p>
+                    <p className="font-medium text-slate-900 flex items-center gap-1">
+                      {user.email_verified ? (
+                        <>
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                          Verified
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="h-4 w-4 text-red-500" />
+                          Not Verified
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Usage Statistics Card */}
+          <Card className="group hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 border-0 shadow-lg bg-white/80 backdrop-blur-sm">
+            <CardHeader className="pb-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
+                <BarChart3 className="h-6 w-6 text-white" />
+              </div>
+              <CardTitle className="text-xl font-semibold text-slate-900">Usage Statistics</CardTitle>
+              <CardDescription>Track your monthly API usage</CardDescription>
+            </CardHeader>
+            <CardContent>
               {loading ? (
-                <LinearProgress />
+                <div className="space-y-3">
+                  <div className="h-4 bg-slate-200 rounded animate-pulse"></div>
+                  <div className="h-4 bg-slate-200 rounded animate-pulse w-3/4"></div>
+                </div>
               ) : usageStats ? (
-                <>
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="subtitle1" gutterBottom>
-                      Montly API Requests
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <Box sx={{ flexGrow: 1 }}>
-                        <LinearProgress
-                          variant="determinate"
-                          value={getUsagePercentage()}
-                          sx={{ height: 10, borderRadius: 5 }}
-                        />
-                      </Box>
-                      <Typography variant="body2" color="text.secondary">
+                <div className="space-y-6">
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium text-slate-700">Monthly API Requests</span>
+                      <span className="text-sm text-slate-500">
                         {usageStats.monthly_requests} / {usageStats.plan_limit}
-                      </Typography>
-                    </Box>
-                  </Box>
+                      </span>
+                    </div>
+                    <Progress 
+                      value={getUsagePercentage()} 
+                      className="h-3"
+                    />
+                  </div>
 
-                  <Box sx={{ mt: 2 }}>
-                    <Typography variant="subtitle2" color="text.secondary">
-                      Remaining Requests
-                    </Typography>
-                    <Typography variant="h6">
-                      {usageStats.remaining_requests}
-                    </Typography>
-                  </Box>
-                </>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg">
+                      <p className="text-sm text-blue-600 font-medium">Used</p>
+                      <p className="text-2xl font-bold text-blue-800">{usageStats.monthly_requests}</p>
+                    </div>
+                    <div className="p-4 bg-gradient-to-r from-green-50 to-green-100 rounded-lg">
+                      <p className="text-sm text-green-600 font-medium">Remaining</p>
+                      <p className="text-2xl font-bold text-green-800">{usageStats.remaining_requests}</p>
+                    </div>
+                  </div>
+                </div>
               ) : (
-                <Typography color="error">{error || 'Failed to load usage statistics'}</Typography>
+                <Alert variant="destructive">
+                  <XCircle className="h-4 w-4" />
+                  <AlertDescription>{error || 'Failed to load usage statistics'}</AlertDescription>
+                </Alert>
               )}
-            </Grid>
+            </CardContent>
+          </Card>
+        </div>
 
-            <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Subscription
-              </Typography>
-              <Divider sx={{ mb: 2 }} />
-              <Card variant="outlined" sx={{ mb: 2 }}>
-                <CardContent>
-                  <Typography variant="h5" gutterBottom>
-                    {user.plan_type.toUpperCase()} PLAN
-                  </Typography>
-                  <List dense>
-                    <ListItem>
-                      <ListItemText 
-                        primary="Monthly OCR Requests" 
-                        secondary={usageStats?.plan_limit || "Loading..."}
-                      />
-                    </ListItem>
-                    {usageStats?.renewal_date && (
-                      <ListItem>
-                        <ListItemText 
-                          primary="Renewal Date" 
-                          secondary={new Date(usageStats.renewal_date).toLocaleDateString()}
-                        />
-                      </ListItem>
-                    )}
-                  </List>
-                  <Button 
-                    variant="contained" 
-                    color="primary"
-                    onClick={() => navigate('/subscription')}
-                    sx={{ mt: 2 }}
-                  >
-                    {user.plan_type === 'free' ? 'Upgrade Plan' : 'Manage Subscription'}
-                  </Button>
-                </CardContent>
-              </Card>
-            </Grid>            <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Account Actions
-              </Typography>
-              <Divider sx={{ mb: 2 }} />
-              <Box sx={{ display: 'flex', gap: 2 }}>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  onClick={() => navigate('/change-password')}
-                >
-                  Change Password
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="error"
-                  onClick={handleLogout}
-                >
-                  Logout
-                </Button>
-              </Box>
-            </Grid>
-            
-            <Grid item xs={12} sx={{ mt: 3 }}>
-              <Typography variant="h6" gutterBottom>
-                Share Your Feedback
-              </Typography>
-              <Divider sx={{ mb: 2 }} />
-              <ReviewForm />
-            </Grid>
-          </Grid>
-        </Paper>
-      </Box>
-    </Container>
+        {/* Subscription Section */}
+        <Card className="mt-8 group hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 border-0 shadow-lg bg-white/80 backdrop-blur-sm">
+          <CardHeader className="pb-4">
+            <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
+              <CreditCard className="h-6 w-6 text-white" />
+            </div>
+            <CardTitle className="text-xl font-semibold text-slate-900">Subscription Details</CardTitle>
+            <CardDescription>Manage your plan and billing information</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl p-6">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="text-2xl font-bold text-slate-900">
+                    {user.plan_type?.toUpperCase() || 'FREE'} PLAN
+                  </h3>
+                  <p className="text-slate-600">Current subscription</p>
+                </div>
+                <Badge variant="secondary" className="bg-blue-100 text-blue-800 text-sm px-3 py-1">
+                  Active
+                </Badge>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div className="flex items-center gap-3">
+                  <BarChart3 className="h-4 w-4 text-slate-500" />
+                  <div>
+                    <p className="text-sm text-slate-500">Monthly OCR Requests</p>
+                    <p className="font-semibold text-slate-900">{usageStats?.plan_limit || "Loading..."}</p>
+                  </div>
+                </div>
+                
+                {usageStats?.renewal_date && (
+                  <div className="flex items-center gap-3">
+                    <Calendar className="h-4 w-4 text-slate-500" />
+                    <div>
+                      <p className="text-sm text-slate-500">Renewal Date</p>
+                      <p className="font-semibold text-slate-900">
+                        {new Date(usageStats.renewal_date).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              <Button 
+                onClick={() => navigate('/subscription')}
+                className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-semibold px-6 py-2 transition-all duration-300"
+              >
+                {user.plan_type === 'free' ? 'Upgrade Plan' : 'Manage Subscription'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Action Buttons */}
+        <Card className="mt-8 border-0 shadow-lg bg-white/80 backdrop-blur-sm">
+          <CardHeader>
+            <CardTitle className="text-xl font-semibold text-slate-900">Account Actions</CardTitle>
+            <CardDescription>Manage your account settings and security</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-4">
+              <Button
+                onClick={() => navigate('/change-password')}
+                variant="outline"
+                className="border-2 border-blue-200 hover:border-blue-300 hover:bg-blue-50 transition-all duration-300 flex items-center gap-2"
+              >
+                <Key className="h-4 w-4" />
+                Change Password
+              </Button>
+              <Button
+                onClick={handleLogout}
+                variant="outline"
+                className="border-2 border-red-200 hover:border-red-300 hover:bg-red-50 text-red-600 hover:text-red-700 transition-all duration-300 flex items-center gap-2"
+              >
+                <LogOut className="h-4 w-4" />
+                Logout
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Review Section */}
+        <div className="mt-8">
+          <ReviewForm axiosAuth={axiosAuth} />
+        </div>
+      </div>
+    </div>
   );
 };
 
