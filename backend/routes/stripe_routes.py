@@ -273,7 +273,7 @@ def create_setup_intent():
         )
         
         # Generate a frontend URL that will handle the setup process
-        setup_url = f"{os.environ.get('FRONTEND_URL', 'http://localhost:3000')}/stripe/setup?setup_intent={setup_intent.client_secret}"
+        setup_url = f"{os.environ.get('FRONTEND_URL', 'http://localhost:3000')}/stripe/setup?setup_intent={setup_intent.id}"
         
         return jsonify({
             "success": True,
