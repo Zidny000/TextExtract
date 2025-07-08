@@ -141,12 +141,33 @@ class User:
 
     @staticmethod
     def can_make_request(user_id):
-        """Check if user can make another request based on their plan limits"""
+        """Check if user can make another request based on their plan limits and subscription status"""
         try:
             # Get user and their plan
             user = User.get_by_id(user_id)
             if not user:
                 return False
+            
+            # Check if subscription is active and not expired
+            sub_details = Subscription.get_user_subscription_details(user_id)
+            if sub_details and sub_details.get("subscription"):
+                subscription = sub_details.get("subscription")
+                
+                # Check if subscription is cancelled
+                if subscription.get("status") == "cancelled":
+                    return False
+                    
+                # Check if subscription has ended
+                if subscription.get("end_date"):
+                    end_date = datetime.datetime.fromisoformat(subscription["end_date"].replace("Z", "+00:00"))
+                    if end_date < datetime.datetime.now(datetime.timezone.utc):
+                        # Check if in grace period
+                        if Subscription.is_in_grace_period(subscription):
+                            # Allow requests during grace period
+                            logger.info(f"User {user_id} is in grace period, allowing request")
+                        else:
+                            # Subscription expired and not in grace period
+                            return False
             
             # Get max requests allowed per month
             max_requests = user.get("max_requests_per_month", 20)
@@ -418,7 +439,7 @@ class Subscription:
     """Model for user subscriptions"""
     
     @staticmethod
-    def create(user_id, plan_id, status="active", start_date=None, end_date=None, renewal_date=None, external_subscription_id=None):
+    def create(user_id, plan_id, status="active", start_date=None, end_date=None, renewal_date=None, external_subscription_id=None, auto_renewal=False):
         """Create a new subscription record"""
         try:
             # Set defaults
@@ -473,7 +494,8 @@ class Subscription:
                 "status": status,
                 "start_date": start_date,
                 "created_at": now.isoformat(),
-                "updated_at": now.isoformat()
+                "updated_at": now.isoformat(),
+                "auto_renewal": auto_renewal
             }
             
             if end_date:
@@ -558,7 +580,226 @@ class Subscription:
         except Exception as e:
             logger.error(f"Error getting user subscription details: {str(e)}")
             return None
-
+    
+    @staticmethod
+    def get_all_active_subscriptions():
+        """Get all active subscriptions from the database"""
+        try:
+            response = supabase.table("subscriptions").select("*").eq("status", "active").execute()
+            return response.data
+        except Exception as e:
+            logger.error(f"Error getting active subscriptions: {str(e)}")
+            return []
+    
+    @staticmethod
+    def update_status(subscription_id, status):
+        """Update the status of a subscription"""
+        try:
+            update_data = {
+                "status": status,
+                "updated_at": datetime.datetime.now().isoformat()
+            }
+            
+            response = supabase.table("subscriptions").update(update_data).eq("id", subscription_id).execute()
+            
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error updating subscription status: {str(e)}")
+            return None
+        
+    @staticmethod
+    def check_renewal(subscription_id):
+        """
+        Check if a subscription should be renewed. Returns True if renewal was successful,
+        False if renewal failed or wasn't needed.
+        """
+        try:
+            # Get subscription
+            response = supabase.table("subscriptions").select("*").eq("id", subscription_id).execute()
+            if len(response.data) == 0:
+                logger.error(f"Subscription {subscription_id} not found")
+                return False
+                
+            subscription = response.data[0]
+            
+            # Check if subscription has auto-renewal enabled
+            if not subscription.get("auto_renewal", False):
+                return False
+                
+            # Check if subscription needs renewal (1 day before expiry to ensure no service interruption)
+            if not subscription.get("renewal_date"):
+                return False
+                
+            renewal_date = datetime.datetime.fromisoformat(subscription["renewal_date"].replace("Z", "+00:00"))
+            now = datetime.datetime.now(datetime.timezone.utc)
+            
+            # If renewal date is within 24 hours, try to renew
+            if (renewal_date - now).total_seconds() <= 86400:  # 24 hours in seconds
+                return Subscription.process_auto_renewal(subscription)
+                
+            return False
+        except Exception as e:
+            logger.error(f"Error checking subscription renewal: {str(e)}")
+            return False
+    
+    @staticmethod
+    def process_auto_renewal(subscription):
+        """
+        Process auto-renewal for a subscription using stored payment method.
+        Returns True if renewal was successful, False otherwise.
+        """
+        try:
+            from payment.stripe_client import StripeClient
+            
+            user_id = subscription["user_id"]
+            plan_id = subscription["plan_id"]
+            
+            # Get plan details
+            plan = SubscriptionPlan.get_by_id(plan_id)
+            if not plan:
+                logger.error(f"Plan {plan_id} not found for auto-renewal")
+                return False
+                
+            # Get user's payment method
+            payment_method = Subscription.get_user_payment_method(user_id)
+            if not payment_method:
+                logger.error(f"No payment method found for user {user_id}")
+                # Mark subscription as payment_failed
+                Subscription.update_status(subscription["id"], "payment_failed")
+                Subscription.send_renewal_failure_notification(user_id, subscription["id"])
+                return False
+                
+            # Process payment with Stripe
+            stripe_client = StripeClient()
+            payment_result = stripe_client.charge_subscription(
+                user_id=user_id,
+                payment_method_id=payment_method["id"],
+                amount=plan["price"],
+                currency=plan["currency"],
+                description=f"Auto-renewal for {plan['name']} plan"
+            )
+            
+            if not payment_result.get("success"):
+                # Payment failed
+                logger.error(f"Auto-renewal payment failed for user {user_id}: {payment_result.get('error')}")
+                Subscription.update_status(subscription["id"], "payment_failed")
+                Subscription.send_renewal_failure_notification(user_id, subscription["id"])
+                return False
+                
+            # Payment successful, extend subscription
+            now = datetime.datetime.now(datetime.timezone.utc)
+            new_end_date = now + datetime.timedelta(days=30)  # Default to 1 month
+            
+            if plan.get("interval") == "year":
+                new_end_date = now + datetime.timedelta(days=365)
+            
+            # Update subscription
+            update_data = {
+                "status": "active",
+                "start_date": now.isoformat(),
+                "end_date": new_end_date.isoformat(),
+                "renewal_date": new_end_date.isoformat(),
+                "updated_at": now.isoformat(),
+                "payment_status": "paid",
+                "last_payment_date": now.isoformat()
+            }
+            
+            supabase.table("subscriptions").update(update_data).eq("id", subscription["id"]).execute()
+            
+            # Create payment transaction record
+            PaymentTransaction.create(
+                user_id=user_id,
+                plan_id=plan_id,
+                amount=plan["price"],
+                currency=plan["currency"],
+                payment_provider="stripe",
+                transaction_id=payment_result.get("transaction_id"),
+                status="completed"
+            )
+            
+            # Send renewal success notification
+            Subscription.send_renewal_success_notification(user_id, subscription["id"])
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error processing auto-renewal: {str(e)}")
+            return False
+    
+    @staticmethod
+    def get_user_payment_method(user_id):
+        """Get the user's default payment method"""
+        try:
+            response = supabase.table("payment_methods").select("*").eq("user_id", user_id).eq("is_default", True).execute()
+            
+            if len(response.data) > 0:
+                return response.data[0]
+            
+            # If no default payment method, get any payment method
+            response = supabase.table("payment_methods").select("*").eq("user_id", user_id).limit(1).execute()
+            
+            if len(response.data) > 0:
+                return response.data[0]
+                
+            return None
+        except Exception as e:
+            logger.error(f"Error getting user payment method: {str(e)}")
+            return None
+    
+    @staticmethod
+    def send_renewal_success_notification(user_id, subscription_id):
+        """Send notification about successful subscription renewal"""
+        try:
+            # In a real implementation, this would send an email
+            # For now, just log it
+            logger.info(f"Subscription {subscription_id} renewed successfully for user {user_id}")
+            
+            # TODO: Implement actual email notification
+        except Exception as e:
+            logger.error(f"Error sending renewal success notification: {str(e)}")
+    
+    @staticmethod
+    def send_renewal_failure_notification(user_id, subscription_id):
+        """Send notification about failed subscription renewal"""
+        try:
+            # In a real implementation, this would send an email
+            # For now, just log it
+            logger.error(f"Subscription {subscription_id} renewal failed for user {user_id}")
+            
+            # TODO: Implement actual email notification
+        except Exception as e:
+            logger.error(f"Error sending renewal failure notification: {str(e)}")
+    
+    @staticmethod
+    def is_in_grace_period(subscription):
+        """
+        Check if a subscription is in grace period after expiration.
+        Returns True if in grace period, False otherwise.
+        """
+        try:
+            # If subscription is not expired or not in payment_failed status, there's no grace period
+            if subscription.get("status") not in ["expired", "payment_failed"]:
+                return False
+                
+            # Check if there's an end date
+            if not subscription.get("end_date"):
+                return False
+                
+            # Parse the end date
+            end_date = datetime.datetime.fromisoformat(subscription["end_date"].replace("Z", "+00:00"))
+            now = datetime.datetime.now(datetime.timezone.utc)
+            
+            # Grace period is 7 days after expiration
+            grace_period_end = end_date + datetime.timedelta(days=3)
+            
+            # Check if current time is within grace period
+            return now <= grace_period_end
+        except Exception as e:
+            logger.error(f"Error checking grace period: {str(e)}")
+            return False
+        
 
 class SubscriptionPlan:
     """Model for subscription plans"""

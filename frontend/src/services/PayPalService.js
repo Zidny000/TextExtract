@@ -83,10 +83,11 @@ class PayPalService {  constructor() {
   }
 
   // Initiate a subscription upgrade
-  async initiateUpgrade(planId) {
+  async initiateUpgrade(planId, autoRenewal = false) {
     try {
       const response = await this.axiosInstance.post('/subscription/upgrade', {
-        plan_id: planId
+        plan_id: planId,
+        auto_renewal: autoRenewal
       });
       return response.data;
     } catch (error) {
@@ -138,6 +139,43 @@ class PayPalService {  constructor() {
       return response.data;
     } catch (error) {
       console.error('Error cancelling subscription:', error);
+      throw error;
+    }
+  }
+  
+  // Toggle auto-renewal setting
+  async updateAutoRenewal(enableAutoRenewal) {
+    try {
+      const response = await this.axiosInstance.post('/subscription/auto-renewal', {
+        auto_renewal: enableAutoRenewal
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error updating auto-renewal:', error);
+      throw error;
+    }
+  }
+  
+  // Update payment method
+  async updatePaymentMethod() {
+    try {
+      const response = await this.axiosInstance.post('/subscription/update-payment-method');
+      return response.data;
+    } catch (error) {
+      console.error('Error updating payment method:', error);
+      throw error;
+    }
+  }
+  
+  // Renew an expired subscription
+  async renewSubscription(planId) {
+    try {
+      const response = await this.axiosInstance.post('/subscription/renew', {
+        plan_id: planId
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error renewing subscription:', error);
       throw error;
     }
   }

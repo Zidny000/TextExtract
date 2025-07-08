@@ -2,8 +2,9 @@ import os
 import time
 import logging
 import json
+import datetime
 from flask import Blueprint, request, jsonify, g
-from database.models import User, ApiRequest, Device
+from database.models import User, ApiRequest, Device, Subscription
 from database.db import supabase
 from auth import login_required, extract_device_info
 from together import Together
@@ -45,6 +46,49 @@ def ocr_proxy():
         # Register or update device if ID is provided
         if device_id:
             Device.register(g.user_id, device_id, device_info)
+        
+        # Get subscription details to check status
+        sub_details = Subscription.get_user_subscription_details(g.user_id)
+        subscription = sub_details.get("subscription") if sub_details else None
+        
+        # Check if subscription is expired
+        if subscription and subscription.get("end_date"):
+            end_date = datetime.datetime.fromisoformat(subscription["end_date"].replace("Z", "+00:00"))
+            if end_date < datetime.datetime.now(datetime.timezone.utc):
+                # Check if in grace period
+                in_grace_period = Subscription.is_in_grace_period(subscription)
+                
+                if in_grace_period:
+                    # Warn about expiration but allow request during grace period
+                    # We'll continue processing the request, just add a warning header
+                    logger.info(f"User {g.user_id} is in grace period, processing request with warning")
+                else:
+                    # Not in grace period, block the request
+                    return jsonify({
+                        "error": "Subscription expired",
+                        "details": "Your subscription has expired. Please renew your subscription to continue using the service.",
+                        "subscription_status": "expired",
+                        "renewal_url": "/subscription",
+                        "auto_renewal": subscription.get("auto_renewal", False)
+                    }), 402  # 402 Payment Required
+        
+        # Check if subscription is cancelled
+        if subscription and subscription.get("status") == "cancelled":
+            return jsonify({
+                "error": "Subscription cancelled",
+                "details": "Your subscription has been cancelled. Please renew your subscription to continue using the service.",
+                "subscription_status": "cancelled",
+                "renewal_url": "/subscription"
+            }), 402  # 402 Payment Required
+            
+        # Check if payment failed
+        if subscription and subscription.get("status") == "payment_failed":
+            return jsonify({
+                "error": "Payment failed",
+                "details": "Your last payment attempt failed. Please update your payment method to continue using the service.",
+                "subscription_status": "payment_failed",
+                "renewal_url": "/subscription/payment-update"
+            }), 402  # 402 Payment Required
         
         # Check if user can make another request based on their plan
         if not User.can_make_request(g.user_id):

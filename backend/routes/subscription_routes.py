@@ -37,14 +37,20 @@ def get_user_plan():
         
         # Calculate subscription status
         subscription_status = "active"
+        in_grace_period = False
+        
         if not subscription:
             subscription_status = "free" if plan["name"] == "free" else "inactive"
         elif subscription.get("status") == "cancelled":
             subscription_status = "cancelled"
+        elif subscription.get("status") == "payment_failed":
+            subscription_status = "payment_failed"
         elif subscription.get("end_date"):
             end_date = datetime.datetime.fromisoformat(subscription["end_date"].replace("Z", "+00:00"))
             if end_date < datetime.datetime.now(datetime.timezone.utc):
                 subscription_status = "expired"
+                # Check if in grace period
+                in_grace_period = Subscription.is_in_grace_period(subscription)
         
         # Get usage statistics
         today = datetime.date.today()
@@ -65,6 +71,8 @@ def get_user_plan():
                 "start_date": subscription.get("start_date") if subscription else None,
                 "end_date": subscription.get("end_date") if subscription else None,
                 "renewal_date": subscription.get("renewal_date") if subscription else None,
+                "auto_renewal": subscription.get("auto_renewal", False) if subscription else False,
+                "in_grace_period": in_grace_period,
                 "current_month": month_name,
                 "month_requests": month_count,
                 "max_requests": max_requests,
@@ -89,6 +97,9 @@ def initiate_upgrade():
         # Get the plan
         plan_id = data["plan_id"]
         plan = SubscriptionPlan.get_by_id(plan_id)
+        
+        # Get auto-renewal setting if provided
+        auto_renewal = data.get("auto_renewal", False)
         
         if not plan:
             return jsonify({"error": f"Plan with ID '{plan_id}' not found"}), 404
@@ -124,7 +135,8 @@ def initiate_upgrade():
             plan_id=plan_id,
             amount=plan["price"],
             currency=plan["currency"],
-            status="pending"
+            status="pending",
+            payload={"auto_renewal": auto_renewal}
         )
         
         if not transaction:
@@ -176,6 +188,11 @@ def complete_payment():
         
         if not updated_transaction:
             return jsonify({"error": "Failed to update transaction status"}), 500
+            
+        # Get auto-renewal setting from transaction payload if available
+        auto_renewal = False
+        if transaction.get("payload") and isinstance(transaction["payload"], dict):
+            auto_renewal = transaction["payload"].get("auto_renewal", False)
         
         # Calculate subscription dates
         subscription_start = datetime.datetime.now().isoformat()
@@ -189,7 +206,8 @@ def complete_payment():
             start_date=subscription_start,
             end_date=subscription_end,
             renewal_date=subscription_end,
-            external_subscription_id=paypal_order_id
+            external_subscription_id=paypal_order_id,
+            auto_renewal=auto_renewal
         )
         
         if not subscription:
@@ -286,3 +304,142 @@ def cancel_subscription():
     except Exception as e:
         logger.error(f"Error cancelling subscription: {str(e)}")
         return jsonify({"error": "Failed to cancel subscription"}), 500
+
+@subscription_routes.route('/auto-renewal', methods=['POST'])
+@login_required
+def update_auto_renewal():
+    """Update auto-renewal setting for current subscription"""
+    try:
+        data = request.json
+        if not data or "auto_renewal" not in data:
+            return jsonify({"error": "Auto-renewal setting is required"}), 400
+        
+        auto_renewal = data["auto_renewal"]
+        
+        # Get the active subscription
+        subscription = Subscription.get_active_subscription(g.user_id)
+        
+        if not subscription or subscription.get("status") == "free_tier":
+            return jsonify({"error": "No active paid subscription found"}), 400
+        
+        # Update the subscription auto-renewal setting
+        update_data = {
+            "auto_renewal": auto_renewal,
+            "updated_at": datetime.datetime.now().isoformat()
+        }
+        
+        response = supabase.table("subscriptions").update(update_data).eq("id", subscription["id"]).execute()
+        
+        if len(response.data) == 0:
+            return jsonify({"error": "Failed to update auto-renewal setting"}), 500
+        
+        return jsonify({
+            "success": True,
+            "message": f"Auto-renewal {'enabled' if auto_renewal else 'disabled'} successfully",
+            "auto_renewal": auto_renewal
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error updating auto-renewal: {str(e)}")
+        return jsonify({"error": "Failed to update auto-renewal setting"}), 500
+
+@subscription_routes.route('/update-payment-method', methods=['POST'])
+@login_required
+def update_payment_method():
+    """Initialize the payment method update process"""
+    try:
+        # Get the payment provider from request, default to Stripe
+        data = request.json or {}
+        payment_provider = data.get('payment_provider', 'stripe')
+        
+        now_timestamp = datetime.datetime.now().timestamp()
+        
+        if payment_provider == 'stripe':
+            # This would typically call into a Stripe client module to create a SetupIntent
+            # For now, we'll just return a mock success response
+            return jsonify({
+                "success": True,
+                "checkout_url": f"/stripe/setup?customer_id={g.user_id}&timestamp={now_timestamp}"
+            }), 200
+        else:
+            # For PayPal or other providers
+            return jsonify({
+                "success": True,
+                "redirect_url": f"/paypal/setup?customer_id={g.user_id}&timestamp={now_timestamp}"
+            }), 200
+            
+    except Exception as e:
+        logger.error(f"Error updating payment method: {str(e)}")
+        return jsonify({"error": "Failed to initialize payment method update"}), 500
+
+@subscription_routes.route('/renew', methods=['POST'])
+@login_required
+def renew_subscription():
+    """Renew an expired subscription"""
+    try:
+        data = request.json
+        if not data or "plan_id" not in data:
+            return jsonify({"error": "Plan ID is required"}), 400
+        
+        plan_id = data["plan_id"]
+        plan = SubscriptionPlan.get_by_id(plan_id)
+        
+        # Get auto-renewal setting if provided
+        auto_renewal = data.get("auto_renewal", False)
+        
+        if not plan:
+            return jsonify({"error": f"Plan with ID '{plan_id}' not found"}), 404
+        
+        # Get current subscription
+        subscription = Subscription.get_active_subscription(g.user_id)
+        
+        # For free plan, just create the subscription directly
+        if plan["price"] == 0:
+            subscription = Subscription.create(
+                user_id=g.user_id,
+                plan_id=plan_id,
+                status="free_tier",
+                start_date=datetime.datetime.now().isoformat()
+            )
+            
+            if subscription:
+                # Update the user record too
+                updated_user = User.update_subscription(
+                    g.user_id, 
+                    plan["name"]
+                )
+                
+                return jsonify({
+                    "success": True,
+                    "message": f"Successfully renewed to {plan['name']} plan",
+                    "plan": plan,
+                    "subscription": subscription
+                }), 200
+            else:
+                return jsonify({"error": "Failed to update subscription"}), 500
+        
+        # For paid plans, create a payment transaction
+        transaction = PaymentTransaction.create(
+            user_id=g.user_id,
+            plan_id=plan_id,
+            amount=plan["price"],
+            currency=plan["currency"],
+            status="pending",
+            payload={"auto_renewal": auto_renewal}
+        )
+        
+        if not transaction:
+            return jsonify({"error": "Failed to create payment transaction"}), 500
+        
+        # Return the transaction ID for the frontend to use with payment provider
+        return jsonify({
+            "success": True,
+            "transaction_id": transaction["id"],
+            "plan": plan,
+            "amount": plan["price"],
+            "currency": plan["currency"]
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error renewing subscription: {str(e)}")
+        return jsonify({"error": "Failed to renew subscription"}), 500

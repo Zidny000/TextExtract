@@ -87,6 +87,30 @@ class StripeService {
   redirectToCheckout(checkoutUrl) {
     window.location.href = checkoutUrl;
   }
+  
+  // Create a session to update payment method
+  async createPaymentMethodUpdateSession() {
+    try {
+      const response = await this.axiosInstance.post('/stripe/create-setup-intent');
+      return response.data;
+    } catch (error) {
+      console.error('Error creating payment method update session:', error);
+      throw error;
+    }
+  }
+  
+  // Verify a successful payment method update
+  async verifyPaymentMethodUpdate(setupIntentId) {
+    try {
+      const response = await this.axiosInstance.post('/stripe/verify-setup-intent', {
+        setup_intent_id: setupIntentId
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error verifying payment method update:', error);
+      throw error;
+    }
+  }
 }
 
 export default new StripeService();
