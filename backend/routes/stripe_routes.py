@@ -273,7 +273,7 @@ def create_setup_intent():
         )
         
         # Generate a frontend URL that will handle the setup process
-        setup_url = f"{os.environ.get('FRONTEND_URL', 'http://localhost:3000')}/stripe/setup?setup_intent={setup_intent.id}"
+        setup_url = f"{os.environ.get('FRONTEND_URL', 'http://localhost:3000')}/stripe/setup?setup_intent_client_secret={setup_intent.client_secret}"
         
         return jsonify({
             "success": True,
@@ -301,10 +301,13 @@ def verify_setup_intent():
         # Get the setup intent from Stripe
         setup_intent = stripe.SetupIntent.retrieve(setup_intent_id)
         
+        # Only verify setup intents that have been successfully completed
+        # The frontend should only call this endpoint after the setup_intent has succeeded
         if setup_intent.status != 'succeeded':
+            logger.warning(f"Setup intent verification attempted with status: {setup_intent.status}")
             return jsonify({
                 "success": False,
-                "error": f"Setup intent not succeeded, status: {setup_intent.status}"
+                "error": f"Setup intent not completed. Please complete the payment form."
             }), 400
             
         # Save the payment method to the database

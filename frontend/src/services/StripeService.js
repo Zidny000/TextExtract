@@ -91,14 +91,20 @@ class StripeService {
   // Create a session to update payment method
   async createPaymentMethodUpdateSession() {
     try {
+      // First notify the subscription service
       const response = await this.axiosInstance.post('/subscription/update-payment-method', {
         payment_provider: 'stripe'
       });
       
       if (response.data.success) {
-        // Now get the actual setup intent
-        const setupResponse = await this.axiosInstance.post('/stripe/create-setup-intent');
-        return setupResponse.data;
+        try {
+          // Now get the actual setup intent
+          const setupResponse = await this.axiosInstance.post('/stripe/create-setup-intent');
+          return setupResponse.data;
+        } catch (setupError) {
+          console.error('Error creating setup intent:', setupError);
+          throw new Error('Failed to create payment setup intent');
+        }
       } else {
         throw new Error('Failed to initialize payment method update');
       }

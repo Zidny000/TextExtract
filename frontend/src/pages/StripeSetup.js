@@ -17,9 +17,11 @@ function StripeSetup() {
   const [cardElement, setCardElement] = useState(null);
   const [processingPayment, setProcessingPayment] = useState(false);
 
-  // Extract setupIntentId from URL if present
+  // Extract parameters from URL if present
   const queryParams = new URLSearchParams(location.search);
   const setupIntentId = queryParams.get('setup_intent');
+  const setupIntentClientSecret = queryParams.get('setup_intent_client_secret');
+  const redirectResult = queryParams.get('redirect_status');
 
   useEffect(() => {
     // Redirect to login if not authenticated
@@ -28,14 +30,17 @@ function StripeSetup() {
       return;
     }
 
-    // If setupIntentId is provided, verify it
-    if (setupIntentId) {
+    // If redirected back from Stripe with a successful result, verify the payment
+    if (setupIntentId && redirectResult === 'succeeded') {
       verifySetupIntent(setupIntentId);
+    } else if (setupIntentClientSecret) {
+      // If we have a client secret but no result yet, show the card form pre-populated
+      initializeStripeFormWithClientSecret(setupIntentClientSecret);
     } else {
-      // Otherwise initialize the stripe form
+      // Otherwise initialize a new stripe form
       initializeStripeForm();
     }
-  }, [isAuthenticated, setupIntentId]);
+  }, [isAuthenticated, setupIntentId, redirectResult, setupIntentClientSecret]);
 
   const initializeStripeForm = async () => {
     try {
@@ -77,6 +82,39 @@ function StripeSetup() {
     }
   };
 
+  const initializeStripeFormWithClientSecret = async (clientSecret) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Load Stripe.js
+      const stripe = await StripeService.loadStripeScript();
+      const stripeInstance = stripe(await StripeService.getPublicKey());
+      
+      // Initialize Elements
+      const elements = stripeInstance.elements({
+        clientSecret: clientSecret,
+      });
+      
+      // Create Card Element
+      const card = elements.create('card');
+      card.mount('#card-element');
+      
+      setStripeElements({
+        stripe: stripeInstance,
+        elements,
+      });
+      setCardElement(card);
+      setSetupIntent({ client_secret: clientSecret });
+      setLoading(false);
+      
+    } catch (error) {
+      console.error('Error initializing Stripe form with client secret:', error);
+      setError('Failed to initialize payment form. Please try again.');
+      setLoading(false);
+    }
+  };
+
   const verifySetupIntent = async (setupIntentId) => {
     try {
       setLoading(true);
@@ -86,7 +124,6 @@ function StripeSetup() {
       const verifyResponse = await StripeService.verifyPaymentMethodUpdate(setupIntentId);
       
       if (verifyResponse.success) {
-
         toast.success('Your payment method has been successfully saved.');
         
         // Redirect back to subscription page
@@ -116,7 +153,8 @@ function StripeSetup() {
       const { error } = await stripeElements.stripe.confirmSetup({
         elements: stripeElements.elements,
         confirmParams: {
-          return_url: `${window.location.origin}/stripe/setup`,
+          // Make sure to include redirect_status so we know the result
+          return_url: `${window.location.origin}/stripe/setup?redirect_status={SETUP_INTENT_STATUS}`,
         },
       });
       
