@@ -17,6 +17,7 @@ import PublicOnlyRoute from './components/PublicOnlyRoute';
 import SubscriptionPage from './pages/SubscriptionPage';
 import SubscriptionSuccess from './pages/SubscriptionSuccess';
 import SubscriptionCancel from './pages/SubscriptionCancel';
+import StripeSetup from './pages/StripeSetup';
 import ExampleComponent from './components/ExampleComponent';
 import ToastProvider from './components/ui/toast-provider';
 
@@ -104,6 +105,14 @@ function App() {
                 element={
                   <SubscriptionCancel />
                 } 
+              />
+              <Route
+                path="/stripe/setup"
+                element={
+                  <ProtectedRoute>
+                    <StripeSetup />
+                  </ProtectedRoute>
+                }
               />
               
               {/* Fallback route - redirect to landing page */}

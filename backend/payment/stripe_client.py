@@ -66,3 +66,70 @@ def verify_stripe_webhook(payload, signature):
     except stripe.error.SignatureVerificationError as e:
         logger.error(f"Invalid signature: {str(e)}")
         return None
+
+class StripeClient:
+    """Client for handling Stripe operations"""
+    
+    def __init__(self):
+        self.api_key = os.environ.get('STRIPE_SECRET_KEY')
+        stripe.api_key = self.api_key
+        
+    def create_setup_intent(self, user_email):
+        """Create a setup intent for saving payment method"""
+        try:
+            # Create or get Stripe customer
+            customers = stripe.Customer.list(email=user_email, limit=1)
+            if customers.data:
+                customer = customers.data[0]
+            else:
+                customer = stripe.Customer.create(email=user_email)
+            
+            # Create setup intent
+            setup_intent = stripe.SetupIntent.create(
+                customer=customer.id,
+                payment_method_types=['card'],
+                usage='off_session'
+            )
+            
+            return {
+                'success': True,
+                'setup_intent_id': setup_intent.id,
+                'client_secret': setup_intent.client_secret
+            }
+            
+        except Exception as e:
+            logger.error(f"Error creating setup intent: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+            
+    def charge_subscription(self, user_id, payment_method_id, amount, currency, description):
+        """Charge a payment method for subscription renewal"""
+        try:
+            # In a real implementation, this would use the payment method to charge
+            # For now, we'll simulate a successful payment
+            
+            # A real implementation would look something like:
+            # payment_intent = stripe.PaymentIntent.create(
+            #    amount=int(amount * 100),  # Stripe uses cents
+            #    currency=currency,
+            #    payment_method=payment_method_id,
+            #    confirm=True,
+            #    off_session=True,
+            #    description=description
+            # )
+            
+            # For demo, always return success
+            return {
+                'success': True,
+                'transaction_id': f'sim_{os.urandom(8).hex()}',
+                'status': 'succeeded'
+            }
+            
+        except Exception as e:
+            logger.error(f"Error charging subscription: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }

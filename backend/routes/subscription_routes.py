@@ -352,17 +352,17 @@ def update_payment_method():
         data = request.json or {}
         payment_provider = data.get('payment_provider', 'stripe')
         
-        now_timestamp = datetime.datetime.now().timestamp()
-        
         if payment_provider == 'stripe':
-            # This would typically call into a Stripe client module to create a SetupIntent
-            # For now, we'll just return a mock success response
-            return jsonify({
+            # Redirect to the stripe route that creates a setup intent
+            response = {
                 "success": True,
-                "checkout_url": f"/stripe/setup?customer_id={g.user_id}&timestamp={now_timestamp}"
-            }), 200
+                "checkout_url": "/stripe/setup"  # The frontend will redirect to this URL
+            }
+            
+            return jsonify(response), 200
         else:
             # For PayPal or other providers
+            now_timestamp = datetime.datetime.now().timestamp()
             return jsonify({
                 "success": True,
                 "redirect_url": f"/paypal/setup?customer_id={g.user_id}&timestamp={now_timestamp}"
