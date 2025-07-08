@@ -58,20 +58,26 @@ function StripeSetup() {
       const stripe = await StripeService.loadStripeScript();
       const stripeInstance = stripe(await StripeService.getPublicKey());
       
-      // Initialize Elements
+      // Initialize Elements with the client secret
       const elements = stripeInstance.elements({
         clientSecret: setupIntentResponse.client_secret,
+        appearance: {
+          theme: 'stripe',
+          variables: {
+            colorPrimary: '#3f51b5',
+          }
+        }
       });
       
-      // Create Card Element
-      const card = elements.create('card');
-      card.mount('#card-element');
+      // Create Payment Element instead of Card Element
+      const paymentElement = elements.create('payment');
       
+      // Store these in state so we can mount the payment element after rendering
       setStripeElements({
         stripe: stripeInstance,
         elements,
       });
-      setCardElement(card);
+      setCardElement(paymentElement);
       setSetupIntent(setupIntentResponse);
       setLoading(false);
       
@@ -94,17 +100,23 @@ function StripeSetup() {
       // Initialize Elements
       const elements = stripeInstance.elements({
         clientSecret: clientSecret,
+        appearance: {
+          theme: 'stripe',
+          variables: {
+            colorPrimary: '#3f51b5',
+          }
+        }
       });
       
-      // Create Card Element
-      const card = elements.create('card');
-      card.mount('#card-element');
+      // Create Payment Element instead of Card Element
+      const paymentElement = elements.create('payment');
       
+      // Store these in state so we can mount the payment element after rendering
       setStripeElements({
         stripe: stripeInstance,
         elements,
       });
-      setCardElement(card);
+      setCardElement(paymentElement);
       setSetupIntent({ client_secret: clientSecret });
       setLoading(false);
       
@@ -150,19 +162,25 @@ function StripeSetup() {
     try {
       setProcessingPayment(true);
       
-      const { error } = await stripeElements.stripe.confirmSetup({
+      // Confirm the setup with the Payment Element
+      const { error, setupIntent } = await stripeElements.stripe.confirmSetup({
         elements: stripeElements.elements,
         confirmParams: {
-          // Make sure to include redirect_status so we know the result
-          return_url: `${window.location.origin}/stripe/setup?redirect_status={SETUP_INTENT_STATUS}`,
+          // Make sure we capture the setup intent ID when redirecting back
+          return_url: `${window.location.origin}/stripe/setup?redirect_status={SETUP_INTENT_STATUS}&setup_intent={SETUP_INTENT_ID}`,
         },
+        redirect: 'if_required',
       });
       
       if (error) {
         throw error;
       }
       
-      // The result will come via redirect and the verifySetupIntent function
+      // If there's no redirect needed, verify the setup intent immediately
+      if (setupIntent && setupIntent.status === 'succeeded') {
+        await verifySetupIntent(setupIntent.id);
+      }
+      // Otherwise, the result will come via redirect and the verifySetupIntent function
       
     } catch (error) {
       console.error('Error confirming setup:', error);
@@ -170,6 +188,37 @@ function StripeSetup() {
       setProcessingPayment(false);
     }
   };
+
+  // Mount payment element when it's available and DOM is ready
+  useEffect(() => {
+    const mountPaymentElement = () => {
+      if (cardElement && !loading && !error) {
+        // Check if the element exists before mounting
+        const paymentElementContainer = document.getElementById('card-element');
+        if (paymentElementContainer) {
+          // Unmount first if needed to prevent errors
+          try {
+            cardElement.unmount();
+          } catch (e) {
+            // Ignore errors from unmounting (it might not be mounted yet)
+          }
+          
+          // Now mount to the DOM element
+          setTimeout(() => {
+            try {
+              cardElement.mount('#card-element');
+              console.log('Payment element mounted successfully');
+            } catch (error) {
+              console.error('Error mounting payment element:', error);
+              setError('Failed to initialize payment form. Please try again.');
+            }
+          }, 100); // Small delay to ensure DOM is ready
+        }
+      }
+    };
+
+    mountPaymentElement();
+  }, [cardElement, loading, error]);
 
   return (
     <Box 
@@ -199,23 +248,27 @@ function StripeSetup() {
         </Alert>
       )}
       
-      {!loading && !error && (
-        <form onSubmit={handleSubmit}>
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="body1" gutterBottom>
-              Please enter your card details:
-            </Typography>
-            
-            <Box 
-              id="card-element" 
-              sx={{ 
-                border: '1px solid #ccc',
-                p: 2,
-                borderRadius: 1
-              }}
-            />
-          </Box>
+      {/* Always render the form, but conditionally show buttons */}
+      <form onSubmit={handleSubmit} style={{ display: !error ? 'block' : 'none' }}>
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="body1" gutterBottom>
+            Please enter your card details:
+          </Typography>
           
+          {/* Always render the card element container so it's in the DOM */}
+          <Box 
+            id="card-element" 
+            sx={{ 
+              border: '1px solid #ccc',
+              p: 2,
+              borderRadius: 1,
+              minHeight: '40px',
+              backgroundColor: loading ? '#f5f5f5' : 'transparent'
+            }}
+          />
+        </Box>
+        
+        {!loading && (
           <Box sx={{ display: 'flex', justifyContent: 'center' }}>
             <button
               type="submit"
@@ -234,8 +287,8 @@ function StripeSetup() {
               {processingPayment ? 'Processing...' : 'Save Card'}
             </button>
           </Box>
-        </form>
-      )}
+        )}
+      </form>
     </Box>
   );
 }
