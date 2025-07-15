@@ -27,6 +27,7 @@ pyvenv.cfg
 env/
 venv/
 ENV/
+!frontend/src/lib
 
 
 # PyInstaller
