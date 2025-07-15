@@ -12,7 +12,8 @@ import {
   Shield, 
   MonitorSpeaker,
   ArrowRight,
-  CheckCircle
+  CheckCircle,
+  Download
 } from 'lucide-react';
 
 const LandingPage = () => {
@@ -68,19 +69,26 @@ const LandingPage = () => {
           <p className="text-xl lg:text-2xl text-slate-600 mb-8 max-w-2xl mx-auto leading-relaxed">
             Extract text from your screen with ease. Powered by AI for instant, accurate results.
           </p>
-          
+
+         
+
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12">
-            <RouterLink to={user ? "/subscriptions" : "/signup"} >
+
+             <a 
+              href="https://github.com/Zidny000/textextract-releases/releases/download/v0.1.0/TextExtract_Setup.exe" 
+              download="TextExtract.exe"
+              className="group"
+            >
               <Button
                 size="lg" 
                 className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-8 py-3 text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5"
               >
-                {user ? "Download" : "Get Started"}
-                <ArrowRight className="ml-2 h-5 w-5" />
-              </Button>
-            </RouterLink>
+                Download
+                <Download className="ml-2 h-5 w-5" />
+              </Button>           
+            </a>
 
-            {user && (
+            {!user && (
               <RouterLink to="/login">
                 <Button
                   variant="outline"
@@ -93,25 +101,6 @@ const LandingPage = () => {
             )}
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12">
-            <a 
-              href="https://textextract1.onrender.com/TextExtract_Setup.exe" 
-              download="TextExtract.exe"
-              className="group"
-            >
-              <Button
-                size="lg" 
-                className="rounded-full w-24 h-24 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5 hover:scale-105 flex flex-col items-center justify-center"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-1 group-hover:animate-bounce">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="7 10 12 15 17 10"></polyline>
-                  <line x1="12" y1="15" x2="12" y2="3"></line>
-                </svg>
-                <span className="text-xs font-semibold">Download for Windows</span>
-              </Button>
-            </a>
-          </div>
           
           <div className="flex items-center justify-center gap-2 text-sm text-slate-500">
             <CheckCircle className="h-4 w-4 text-green-500" />
@@ -167,15 +156,19 @@ const LandingPage = () => {
           <p className="text-xl text-slate-300 mb-8 max-w-2xl mx-auto">
             Join thousands of users who trust TextExtract for their daily text extraction needs.
           </p>
-          <RouterLink to={user ? "/" : "/signup"}>
+          <a 
+              href="https://github.com/Zidny000/textextract-releases/releases/download/v0.1.0/TextExtract_Setup.exe" 
+              download="TextExtract.exe"
+              className="group"
+            >
             <Button 
               size="lg"
               className="bg-white text-slate-900 hover:bg-slate-100 px-8 py-3 text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5"
             >
               Start Extracting Now
-              <ArrowRight className="ml-2 h-5 w-5" />
+              <Download className="ml-2 h-5 w-5" />
             </Button>
-          </RouterLink>
+          </a>
         </div>
       </div>
     </div>
