@@ -1,6 +1,4 @@
 # Installer
-*.exe
-TextExtract_Setup.exe
 *.msi
 *.app
 

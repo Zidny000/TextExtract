@@ -10,12 +10,12 @@
     {
       "src": "textextract.png",
       "type": "image/png",
-      "sizes": "192x192"
+      "sizes": "14x14"
     },
     {
       "src": "textextract.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "14x14"
     }
   ],
   "start_url": ".",

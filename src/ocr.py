@@ -87,6 +87,21 @@ def show_upgrade_dialog(parent_window, current_count, max_count):
     
     return result
 
+def show_error_dialog(parent_window, error_message):
+    """Show error dialog with the provided error message"""
+    root = tk.Tk() if parent_window is None else tk.Toplevel(parent_window)
+    root.withdraw()  # Hide the root window
+
+    messagebox.showerror(
+        "Error",
+        f"An error occurred: {error_message}\n\n",
+        parent=parent_window if parent_window else root
+    )
+    
+    if parent_window is None:
+        root.destroy()
+    
+
 def show_device_limit_dialog(parent_window):
     """Show dialog informing user they've reached device limit"""
     root = tk.Tk() if parent_window is None else tk.Toplevel(parent_window)
@@ -299,6 +314,7 @@ def extract_text_from_area(x1, y1, x2, y2, parent_window=None):
                 try:
                     error_data = response.json()
                     error_message = error_data.get('error', 'Unknown error')
+                    show_error_dialog(parent_window, error_message)
                     print(f"API error: {error_message}")
                     return f"ERROR: {error_message}"
                 except:

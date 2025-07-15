@@ -70,25 +70,47 @@ const LandingPage = () => {
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12">
-            <RouterLink to={user ? "/" : "/signup"} >
+            <RouterLink to={user ? "/subscriptions" : "/signup"} >
               <Button
                 size="lg" 
                 className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-8 py-3 text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5"
               >
-                Get Started
+                {user ? "Download" : "Get Started"}
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </RouterLink>
 
-            <RouterLink to="/login">
+            {user && (
+              <RouterLink to="/login">
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="border-2 border-slate-300 hover:border-slate-400 px-8 py-3 text-lg font-semibold transition-all duration-300 hover:bg-slate-50"
+                >
+                  Login
+                </Button>
+              </RouterLink>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12">
+            <a 
+              href="https://textextract1.onrender.com/TextExtract_Setup.exe" 
+              download="TextExtract.exe"
+              className="group"
+            >
               <Button
-                variant="outline"
-                size="lg"
-                className="border-2 border-slate-300 hover:border-slate-400 px-8 py-3 text-lg font-semibold transition-all duration-300 hover:bg-slate-50"
+                size="lg" 
+                className="rounded-full w-24 h-24 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5 hover:scale-105 flex flex-col items-center justify-center"
               >
-                Login
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-1 group-hover:animate-bounce">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span className="text-xs font-semibold">Download for Windows</span>
               </Button>
-            </RouterLink>
+            </a>
           </div>
           
           <div className="flex items-center justify-center gap-2 text-sm text-slate-500">
