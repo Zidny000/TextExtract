@@ -3,19 +3,19 @@
   "name": "TextExtract",
   "icons": [
     {
-      "src": "textextract.png",
-      "sizes": "14x14",
+      "src": "icon.ico",
+      "sizes": "16x16",
       "type": "image/png"
     },
     {
-      "src": "textextract.png",
+      "src": "icon.ico",
       "type": "image/png",
-      "sizes": "14x14"
+      "sizes": "128x128"
     },
     {
-      "src": "textextract.png",
+      "src": "icon.ico",
       "type": "image/png",
-      "sizes": "14x14"
+      "sizes": "256x256"
     }
   ],
   "start_url": ".",

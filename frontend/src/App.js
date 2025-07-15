@@ -66,7 +66,7 @@ function App() {
               <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
               
               {/* UI Components Demo Route */}
-              <Route path="/ui-components" element={<ExampleComponent />} />
+              {/* <Route path="/ui-components" element={<ExampleComponent />} /> */}
               
               {/* Protected routes that require authentication */}
               <Route 
