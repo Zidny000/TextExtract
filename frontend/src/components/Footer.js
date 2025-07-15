@@ -19,7 +19,7 @@ const Footer = () => {
           color="inherit" 
           underline="hover"
         >
-          t.m.zidny@gmail.com
+          textextract.info@gmail.com
         </Link>
       </Typography>
     </Box>
