@@ -77,7 +77,7 @@
     "build:prod": "cross-env REACT_APP_API_URL=https://textextract.onrender.com react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "dev": "cross-env BROWSER=none nodemon npm run start:prod"
+    "dev": "cross-env BROWSER=none nodemon npm run start:dev"
   },
   "eslintConfig": {
     "extends": [
