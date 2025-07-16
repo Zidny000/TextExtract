@@ -15,6 +15,7 @@ RequestExecutionLevel admin
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
 !include "LogicLib.nsh"  ; For ${If} statements
+!include "nsProcess.nsh"  ; Add this line to include nsProcess functions for process management
 
 ; Define the interface settings
 !define MUI_ABORTWARNING
@@ -47,6 +48,29 @@ RequestExecutionLevel admin
 
 ; Language
 !insertmacro MUI_LANGUAGE "English"
+
+; Function to kill the running TextExtract process before uninstallation
+Function un.TerminateTextExtractProcess
+    DetailPrint "Looking for running TextExtract process..."
+    ${nsProcess::FindProcess} "TextExtract.exe" $R0
+    
+    ${If} $R0 == 0
+        DetailPrint "TextExtract.exe is running. Terminating process..."
+        ${nsProcess::KillProcess} "TextExtract.exe" $R0
+        
+        ${If} $R0 == 0
+            DetailPrint "Process successfully terminated."
+        ${Else}
+            DetailPrint "Failed to terminate process (error code: $R0). Waiting a few seconds..."
+            Sleep 2000
+            ${nsProcess::KillProcess} "TextExtract.exe" $R0
+        ${EndIf}
+    ${Else}
+        DetailPrint "TextExtract.exe is not running."
+    ${EndIf}
+    
+    ${nsProcess::Unload}
+FunctionEnd
 
 ; Installer Version Information
 VIProductVersion "${PRODUCT_VERSION}.0"
@@ -134,6 +158,12 @@ SectionEnd
 
 ; Uninstaller
 Section "Uninstall"
+    ; First, terminate any running instance of TextExtract
+    Call un.TerminateTextExtractProcess
+    
+    ; Wait a bit to ensure processes are fully terminated
+    Sleep 1000
+    
     ; Remove StartMenu shortcuts
     Delete "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk"
     Delete "$SMPROGRAMS\${PRODUCT_NAME}\Uninstall.lnk"
@@ -154,9 +184,13 @@ Section "Uninstall"
     ; Remove app from Windows path
     EnVar::DeleteValue "PATH" "$INSTDIR"
     
+    ; Make extra sure the application is not running
+    ExecWait 'taskkill /F /IM TextExtract.exe'
+    Sleep 500
+    
     ; Remove log directory
     RMDir /r "$APPDATA\TextExtract"
     
     ; Remove files and directories
     RMDir /r "$INSTDIR"
-SectionEnd 
+SectionEnd

@@ -34,40 +34,6 @@ TextExtract is a screen text extraction tool to capture text from anywhere on yo
 - `Ctrl+Alt+C`: Capture text from the screen
 - `Ctrl+Alt+V`: Show/hide the visual control panel
 
-## Building from Source
-
-### Prerequisites
-
-- Python 3.7 or higher
-- Required packages listed in `requirements.txt`
-- NSIS (Nullsoft Scriptable Install System) for building the installer
-
-### Build Steps
-
-1. Clone the repository:
-   ```
-   git clone https://github.com/yourrepository/TextExtract.git
-   cd TextExtract
-   ```
-
-2. Create a virtual environment (optional but recommended):
-   ```
-   python -m venv venv
-   venv\Scripts\activate
-   ```
-
-3. Install dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
-
-4. Build the installer:
-   ```
-   build_installer.bat
-   ```
-
-5. The installer will be created in the project directory as `TextExtract_Setup.exe`
-
 ## Uninstallation
 
 TextExtract can be uninstalled like any standard Windows application:
@@ -109,5 +75,7 @@ TextExtract is released under the MIT License. See the [LICENSE](LICENSE) file f
 - [Together.ai](https://together.ai) for advanced OCR capabilities
 
 ---
+
+Your screen capture is being processed by AI
 
 © 2025 TextExtract. All rights reserved.

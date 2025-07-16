@@ -75,7 +75,7 @@ const LandingPage = () => {
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12">
 
              <a 
-              href="https://github.com/Zidny000/textextract-releases/releases/download/v0.1.0/TextExtract_Setup.exe" 
+              href="https://github.com/Zidny000/textextract-releases/releases/download/v1.0.0/TextExtract_Setup.exe" 
               download="TextExtract.exe"
               className="group"
             >
@@ -157,7 +157,7 @@ const LandingPage = () => {
             Join thousands of users who trust TextExtract for their daily text extraction needs.
           </p>
           <a 
-              href="https://github.com/Zidny000/textextract-releases/releases/download/v0.1.0/TextExtract_Setup.exe" 
+              href="https://github.com/Zidny000/textextract-releases/releases/download/v1.0.0/TextExtract_Setup.exe" 
               download="TextExtract.exe"
               className="group"
             >

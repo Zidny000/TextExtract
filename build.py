@@ -114,6 +114,20 @@ def build_installer():
     
     print(f"Found NSIS at: {nsis_exe}")
     
+    # Check for the nsProcess plugin
+    nsis_plugins_dir = os.path.dirname(nsis_exe) + "\\Plugins"
+    nsprocess_x86_path = os.path.join(nsis_plugins_dir, "x86-unicode", "nsProcess.dll")
+    
+    if not os.path.exists(nsprocess_x86_path):
+        print("⚠️  NSIS nsProcess plugin not found.")
+        print("Please download and install the nsProcess plugin for NSIS from:")
+        print("https://nsis.sourceforge.io/NsProcess_plugin")
+        print("Extract nsProcess.dll to your NSIS plugins directory:")
+        print(f"  {nsis_plugins_dir}\\x86-unicode\\")
+        print("\nContinuing anyway, but the uninstaller may not properly close running instances.")
+    else:
+        print("✅ NSIS nsProcess plugin found.")
+    
     # Ensure the installer.nsi file exists
     if not os.path.exists("installer.nsi"):
         print("installer.nsi file not found. Cannot create installer.")
