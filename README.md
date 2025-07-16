@@ -1,6 +1,6 @@
 # TextExtract - Screen Text Extraction Tool
 
-TextExtract is a screen text extraction tool using OCR (Optical Character Recognition) to capture text from anywhere on your screen. Perfect for copying text from applications, images, videos, or any other screen content that doesn't allow normal text selection.
+TextExtract is a screen text extraction tool to capture text from anywhere on your screen. Perfect for copying text from applications, images, videos, or any other screen content that doesn't allow normal text selection.
 
 ## Features
 
@@ -17,32 +17,21 @@ TextExtract is a screen text extraction tool using OCR (Optical Character Recogn
 
 ### Windows Installer (Recommended)
 
-1. Download the latest installer (`TextExtract_Setup.exe`) from the [Releases](https://github.com/yourrepository/TextExtract/releases) page
+1. Download the latest installer (`TextExtract_Setup.exe`) from the https://textextract1.onrender.com page
 2. Run the installer and follow the on-screen instructions
 3. Choose installation options (desktop shortcut, start with Windows)
 4. Once installed, TextExtract will be available from the Start Menu, desktop shortcut (if selected), or by searching in Windows Search
-
-### Manual Installation (Advanced)
-
-If you prefer not to use the installer:
-
-1. Download the latest ZIP package from the [Releases](https://github.com/yourrepository/TextExtract/releases) page
-2. Extract the ZIP file to a location of your choice
-3. Run `TextExtract.exe` to start the application
-4. Optionally run `create_shortcuts.bat` to create desktop and startup shortcuts
 
 ## Usage
 
 - **Launch**: Start TextExtract from the Start Menu, desktop shortcut, or by searching in Windows
 - **Capture Text**: Press `Ctrl+Alt+C` to start a capture, select the area with your mouse
-- **Change Monitor**: Press `Ctrl+Alt+M` to select which monitor to capture from
 - **Show Control Panel**: Press `Ctrl+Alt+V` to show the visual control panel
 - **System Tray**: Right-click the TextExtract icon in the system tray to access menu options
 
 ## Keyboard Shortcuts
 
 - `Ctrl+Alt+C`: Capture text from the screen
-- `Ctrl+Alt+M`: Change the monitor selection
 - `Ctrl+Alt+V`: Show/hide the visual control panel
 
 ## Building from Source
@@ -121,4 +110,4 @@ TextExtract is released under the MIT License. See the [LICENSE](LICENSE) file f
 
 ---
 
-© 2023-2025 TextExtract. All rights reserved.
+© 2025 TextExtract. All rights reserved.
