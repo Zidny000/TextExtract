@@ -155,7 +155,11 @@ class User:
                 return User.get_monthly_request_count(user_id)
             
             subscription = sub_details.get("subscription")
-            
+
+            if subscription.get("status") == "free_tier":
+                # If free tier, count all requests in the current month
+                return User.get_monthly_request_count(user_id)
+
             # Get subscription start date
             start_date = None
             if subscription.get("start_date"):
