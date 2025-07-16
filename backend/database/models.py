@@ -105,7 +105,7 @@ class User:
         
     @staticmethod
     def get_monthly_request_count(user_id, month=None, year=None):
-        """Get the number of API requests made by a user for a specific month"""
+        """Get the number of API requests made by a user for a specific calendar month"""
         if month is None or year is None:
             today = datetime.date.today()
             month = today.month
@@ -138,6 +138,86 @@ class User:
         except Exception as e:
             logger.error(f"Error getting monthly request count: {str(e)}")
             return 0
+    
+    @staticmethod
+    def get_subscription_period_request_count(user_id, sub_details=None):
+        """
+        Get the number of API requests made by a user within their current subscription period.
+        This solves the issue of counting requests based on subscription dates rather than calendar months.
+        """
+        try:
+            # If sub_details not provided, get it
+            if not sub_details:
+                sub_details = Subscription.get_user_subscription_details(user_id)
+            
+            if not sub_details or not sub_details.get("subscription"):
+                # Fall back to calendar month if no subscription details available
+                return User.get_monthly_request_count(user_id)
+            
+            subscription = sub_details.get("subscription")
+            
+            # Get subscription start date
+            start_date = None
+            if subscription.get("start_date"):
+                start_date = datetime.datetime.fromisoformat(subscription["start_date"].replace("Z", "+00:00"))
+                start_date = start_date.date()
+            else:
+                # Fall back to first day of current month if no start date
+                today = datetime.date.today()
+                start_date = datetime.date(today.year, today.month, 1)
+            
+            # Calculate the current period end date based on subscription start date
+            today = datetime.date.today()
+            current_day = today.day
+            start_day = start_date.day
+            
+            # If we're before the subscription start day in the current month
+            if current_day < start_day:
+                # Period is from start_day of previous month to day before start_day of current month
+                if today.month == 1:  # January
+                    period_start = datetime.date(today.year - 1, 12, start_day)
+                else:
+                    period_start = datetime.date(today.year, today.month - 1, start_day)
+                period_end = datetime.date(today.year, today.month, start_day) - datetime.timedelta(days=1)
+            else:
+                # Period is from start_day of current month to day before start_day of next month
+                period_start = datetime.date(today.year, today.month, start_day)
+                if today.month == 12:  # December
+                    next_month_date = datetime.date(today.year + 1, 1, start_day)
+                else:
+                    next_month_date = datetime.date(today.year, today.month + 1, start_day)
+                period_end = next_month_date - datetime.timedelta(days=1)
+            
+            # Handle edge cases for months with different numbers of days
+            # If the start_day is beyond the last day of a month, use the last day of that month
+            try:
+                period_start = period_start
+            except ValueError:
+                # Get the last day of the month
+                if period_start.month == 12:
+                    period_start = datetime.date(period_start.year + 1, 1, 1) - datetime.timedelta(days=1)
+                else:
+                    period_start = datetime.date(period_start.year, period_start.month + 1, 1) - datetime.timedelta(days=1)
+            
+            # Query the database for the sum of requests in the subscription period date range
+            response = supabase.table("usage_stats") \
+                .select("requests_count") \
+                .eq("user_id", user_id) \
+                .gte("date", period_start.isoformat()) \
+                .lte("date", period_end.isoformat()) \
+                .execute()
+            
+            # Sum up all the requests for the subscription period
+            total_requests = 0
+            for record in response.data:
+                total_requests += record.get("requests_count", 0)
+                
+            logger.info(f"User {user_id} has used {total_requests} requests in the current subscription period ({period_start} to {period_end})")
+            return total_requests
+        except Exception as e:
+            logger.error(f"Error getting subscription period request count: {str(e)}")
+            # Fall back to calendar month count in case of error
+            return User.get_monthly_request_count(user_id)
 
     @staticmethod
     def can_make_request(user_id):
@@ -172,11 +252,11 @@ class User:
             # Get max requests allowed per month
             max_requests = user.get("max_requests_per_month", 20)
             
-            # Get current request count for this month
-            current_count = User.get_monthly_request_count(user_id)
+            # Get current request count for the subscription period instead of calendar month
+            current_count = User.get_subscription_period_request_count(user_id, sub_details)
             
             # Check if user is within limits
-            return current_count <= max_requests
+            return current_count < max_requests
         except Exception as e:
             logger.error(f"Error checking if user can make request: {str(e)}")
             return False
@@ -690,7 +770,7 @@ class Subscription:
                 
             # Payment successful, extend subscription
             now = datetime.datetime.now(datetime.timezone.utc)
-            new_end_date = now + datetime.timedelta(days=30)  # Default to 1 month
+            new_end_date = now + datetime.timedelta(days=30) # Default to 1 month
             
             if plan.get("interval") == "year":
                 new_end_date = now + datetime.timedelta(days=365)

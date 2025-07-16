@@ -279,7 +279,7 @@ const ProfilePage = () => {
                 <BarChart3 className="h-6 w-6 text-white" />
               </div>
               <CardTitle className="text-xl font-semibold text-slate-900">Usage Statistics</CardTitle>
-              <CardDescription>Track your monthly API usage</CardDescription>
+              <CardDescription>Track your API usage</CardDescription>
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -291,7 +291,7 @@ const ProfilePage = () => {
                 <div className="space-y-6">
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm font-medium text-slate-700">Monthly API Requests</span>
+                      <span className="text-sm font-medium text-slate-700">API Requests</span>
                       <span className="text-sm text-slate-500">
                         {usageStats.monthly_requests} / {usageStats.plan_limit}
                       </span>

@@ -468,8 +468,8 @@ const SubscriptionPage = () => {
                   </ListItem>
                   <ListItem>
                     <ListItemText 
-                      primary="Requests This Month" 
-                      secondary={`${userPlan.usage.month_requests} / ${userPlan.usage.max_requests} (${userPlan.usage.current_month})`} 
+                      primary="Requests Made" 
+                      secondary={`${userPlan.usage.month_requests}`} 
                     />
                   </ListItem>
                   <ListItem>

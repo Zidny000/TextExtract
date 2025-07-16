@@ -19,7 +19,7 @@ def get_profile():
         user.pop('password_hash', None)
         
         # Get today's request count
-        today_count = User.get_monthly_request_count(user['id'])
+        today_count = User.get_subscription_period_request_count(user['id'])
         
         # Get user's devices
         devices = Device.get_user_devices(user['id'])
