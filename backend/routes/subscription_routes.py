@@ -54,7 +54,7 @@ def get_user_plan():
         
         # Get usage statistics
         today = datetime.date.today()
-        month_count = User.get_monthly_request_count(user["id"])
+        month_count = User.get_subscription_period_request_count(user["id"])
         max_requests = user.get("max_requests_per_month", 20)
         
         # Get device usage
