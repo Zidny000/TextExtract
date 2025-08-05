@@ -63,7 +63,7 @@ class FloatingIcon:
                             highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
         
-        # Draw the icon
+        # Draw icon
         self.draw_icon()
         
         # Bind events
