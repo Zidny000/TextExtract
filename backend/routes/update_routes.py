@@ -251,7 +251,7 @@ def get_latest_update():
         # Find the appropriate asset for the client platform
         asset = None
         for a in latest_release.get('assets', []):
-            if client_platform.lower() in a['name'].lower() and a['name'].endswith('.exe'):
+            if (client_platform.lower() == 'windows' and a['name'].endswith('.exe')) or (client_platform.lower() == 'mac' and a['name'].endswith('.dmg')):
                 asset = a
                 break
                 
