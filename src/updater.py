@@ -102,6 +102,7 @@ class UpdateManager:
             response.raise_for_status()
             
             update_info = response.json()
+            print(update_info)
             self.latest_version = update_info.get("version")
             
             # Update the last check time

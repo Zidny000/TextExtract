@@ -142,6 +142,7 @@ def get_latest_update():
                 "message": f"No compatible installer found for {client_platform}"
             }), 200
             
+        print(f"Latest version: {latest_version}, Client version: {client_version}")
         # Return update information
         return jsonify({
             "available": True,
