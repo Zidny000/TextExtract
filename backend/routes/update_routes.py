@@ -244,7 +244,8 @@ def get_latest_update():
         if not is_newer_version(latest_version, client_version):
             return jsonify({
                 "available": False,
-                "message": "You already have the latest version"
+                "message": "You already have the latest version",
+                "version": latest_version
             }), 200
             
         # Find the appropriate asset for the client platform
@@ -257,10 +258,10 @@ def get_latest_update():
         if not asset:
             return jsonify({
                 "available": False,
-                "message": f"No compatible installer found for {client_platform}"
+                "message": f"No compatible installer found for {client_platform}",
+                "version": latest_version
             }), 200
-            
-        print(f"Latest version: {latest_version}, Client version: {client_version}")
+        
         # Return update information
         return jsonify({
             "available": True,
