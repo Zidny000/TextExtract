@@ -23,5 +23,8 @@ APP_ID = "com.textextract.app"  # Unique application identifier
 # Windows registry specific
 REGISTRY_PATH = r"Software\TextExtract"
 
-# Feature flags
-ENABLE_AUTO_UPDATE = True 
+# Update system configuration
+ENABLE_AUTO_UPDATE = True
+UPDATE_URL = "/api/updates/latest"  # API endpoint for update information (path only, domain added in updater)
+UPDATE_CHECK_INTERVAL_HOURS = 24  # Check for updates once a day
+UPDATE_CHANNEL = "stable"  # Can be "stable", "beta", or "dev" 

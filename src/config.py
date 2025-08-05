@@ -26,14 +26,18 @@ else:
     USE_PRODUCTION_API = os.getenv("USE_PRODUCTION_API", "False").lower() == "true"
 
 # API URLs
-DEV_PROTOCOL = "http"
+DEV_PROTOCOL = "https"
 PROD_PROTOCOL = "https"
-DEV_DOMAIN = "localhost:5000"
+DEV_DOMAIN = "textextract-dev.onrender.com"
 PROD_DOMAIN = "textextract.onrender.com"
 
 # Frontend URLs
 DEV_FRONTEND_DOMAIN = "localhost:3000"
 PROD_FRONTEND_DOMAIN = "textextract1.onrender.com"  # Update this if your frontend URL is different
+
+# Update system configuration
+UPDATE_GITHUB_OWNER = "Zidny000"
+UPDATE_GITHUB_REPO = "TextExtract"
 
 # Get the appropriate API URL based on environment
 def get_api_url():
