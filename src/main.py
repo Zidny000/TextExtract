@@ -25,6 +25,8 @@ from src.auth              import (
     is_authenticated, refresh_token,
     logout, open_browser_url, get_user_profile
 )
+# Import the updater module
+from src.updater import check_for_updates_at_startup, start_background_update_check
 
 logger = logging.getLogger(__name__)
 
@@ -328,6 +330,10 @@ def main():
         if auth_success:
             Thread(target=lambda: fetch_profile_thread(app_state, root), daemon=True).start()
         
+        # Check for updates in the background (silent check - no UI unless update available)
+        print("Starting background update check...")
+        start_background_update_check(app_state, root)
+        
         print(f"{APP_NAME} v{__version__} started")
         print("- Ctrl+Alt+C: Capture from last selected monitor")
         print("- Ctrl+Alt+M: Change monitor selection")
@@ -352,6 +358,8 @@ def main():
                         open_profile_in_browser()
                     elif command == "logout":
                         logout_user()
+                    elif command == "check_updates":
+                        check_for_updates()
                     elif command == "exit":
                         exit_application()
                     app_state.command_queue.task_done()
@@ -463,6 +471,41 @@ def main():
                 print(f"Error opening profile in browser: {e}")
                 print(traceback.format_exc())
                 messagebox.showerror("Error", f"Failed to open profile page: {str(e)}")
+                
+        def check_for_updates():
+            """Check for software updates"""
+            print("Checking for updates...")
+            
+            try:
+                # Import the update manager here to avoid circular imports
+                from src.updater import UpdateManager
+                
+                # Create an update manager and check for updates
+                update_manager = UpdateManager(app_state)
+                update_available = update_manager.check_for_updates(force=True)
+                
+                if update_available:
+                    # Prompt the user to download and install the update
+                    should_update = update_manager.prompt_for_update(root)
+                    
+                    if should_update:
+                        # Download and install the update
+                        update_manager.download_and_install_update(root)
+                else:
+                    # No updates available
+                    messagebox.showinfo(
+                        "Software Update", 
+                        f"You are already running the latest version of {APP_NAME} ({__version__}).", 
+                        parent=root
+                    )
+            except Exception as e:
+                print(f"Error checking for updates: {e}")
+                print(traceback.format_exc())
+                messagebox.showerror(
+                    "Update Error", 
+                    f"An error occurred while checking for updates:\n\n{str(e)}", 
+                    parent=root
+                )
         
         def logout_user():
             """Safely logout the user"""
@@ -532,6 +575,10 @@ def main():
         def safe_logout():
             # Execute in the main thread using after() to avoid freezing
             root.after(0, lambda: app_state.command_queue.put(("logout", None)))
+        
+        def safe_check_for_updates():
+            # Execute in the main thread using after() to avoid freezing
+            root.after(0, lambda: app_state.command_queue.put(("check_updates", None)))
         
         def safe_exit():
             root.after(0, lambda: app_state.command_queue.put(("exit", None)))
@@ -621,6 +668,7 @@ def main():
                 pystray.MenuItem('Profile', lambda: safe_open_profile_in_browser()),
                 pystray.MenuItem('Capture (Ctrl+Alt+C)', lambda: safe_capture()),
                 pystray.MenuItem('Floating UI (Ctrl+Alt+V)', lambda: safe_toggle_floating_icon(), default=True ),
+                pystray.MenuItem('Check for Updates', lambda: safe_check_for_updates()),
                 pystray.MenuItem('Logout', lambda: safe_logout()),
                 pystray.MenuItem('Exit', lambda: safe_exit())
             )
