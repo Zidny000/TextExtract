@@ -98,29 +98,70 @@ class UpdateManager:
             }
             
             logger.info(f"Checking for updates from {full_update_url}")
-            response = requests.get(full_update_url, params=query_params, timeout=10)
-            response.raise_for_status()
             
-            update_info = response.json()
-            print(update_info)
-            self.latest_version = update_info.get("version")
-            
-            # Update the last check time
-            self._set_last_check_time()
-            
-            # Compare versions
-            if self._is_newer_version(self.latest_version, self.current_version):
+            try:
+                # Make the request with a reasonable timeout and retry logic
+                for attempt in range(3):  # Try up to 3 times
+                    try:
+                        response = requests.get(
+                            full_update_url,
+                            params=query_params,
+                            timeout=10,
+                            headers={'User-Agent': f'TextExtract/{self.current_version}'}
+                        )
+                        response.raise_for_status()
+                        break  # Break if successful
+                    except (requests.exceptions.RequestException, requests.exceptions.HTTPError) as req_err:
+                        if attempt < 2:  # Don't log on final attempt as we'll catch it outside
+                            logger.warning(f"Update check attempt {attempt+1} failed: {req_err}. Retrying...")
+                            time.sleep(1)  # Short delay before retry
+                        else:
+                            raise  # Re-raise on final attempt
+                            
+                # Process the response
+                update_info = response.json()
+                logger.debug(f"Update check response: {update_info}")
+                
+                # Check for available flag in response
+                if not update_info.get("available", False):
+                    logger.info(f"No updates available: {update_info.get('message', 'Unknown reason')}")
+                    self._set_last_check_time()  # Still update check time even if no updates
+                    return False
+                
+                self.latest_version = update_info.get("version")
+                
+                # Update the last check time
+                self._set_last_check_time()
+                
+                # Store update info
                 self.update_info = update_info
                 self.download_url = update_info.get("download_url")
                 self.update_available = True
                 logger.info(f"Update available: {self.latest_version} (current: {self.current_version})")
                 return True
-            else:
-                logger.info(f"No updates available. Current version: {self.current_version}")
-                return False
+                
+            except requests.exceptions.HTTPError as http_err:
+                if hasattr(response, 'status_code') and response.status_code == 429:
+                    logger.warning("Update check rate limited by server")
+                    return False
+                else:
+                    logger.error(f"HTTP error during update check: {http_err}")
+                    raise
+            except requests.exceptions.ConnectionError:
+                logger.error(f"Connection error when checking for updates - server may be down")
+                raise
+            except requests.exceptions.Timeout:
+                logger.error(f"Timeout when checking for updates")
+                raise
+            except requests.exceptions.RequestException as req_err:
+                logger.error(f"Request error when checking for updates: {req_err}")
+                raise
                 
         except Exception as e:
             logger.error(f"Error checking for updates: {e}")
+            # Update the last check time anyway to prevent constant retries on failures
+            # But use a shorter interval (1/4 of normal) to retry sooner than normal
+            self._set_last_check_time(time.time() - (UPDATE_CHECK_INTERVAL_HOURS * 3600 * 0.75))
             return False
     
     def _is_newer_version(self, latest_version, current_version):

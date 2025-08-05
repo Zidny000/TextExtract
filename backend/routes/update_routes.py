@@ -16,6 +16,37 @@ logger = logging.getLogger(__name__)
 # Create a blueprint for update routes
 update_routes = Blueprint('update_routes', __name__)
 
+# Simple rate limiting mechanism
+IP_REQUESTS = {}
+RATE_LIMIT_WINDOW = 3600  # 1 hour in seconds
+RATE_LIMIT_MAX = 50  # Maximum requests per IP in the window
+
+def check_rate_limit(ip):
+    """Check if an IP has exceeded the rate limit"""
+    current_time = datetime.now().timestamp()
+    
+    # Clear old entries first (garbage collection)
+    for stored_ip in list(IP_REQUESTS.keys()):
+        last_time = IP_REQUESTS[stored_ip]["timestamp"]
+        if current_time - last_time > RATE_LIMIT_WINDOW:
+            del IP_REQUESTS[stored_ip]
+    
+    # Check/update current IP
+    if ip in IP_REQUESTS:
+        data = IP_REQUESTS[ip]
+        # If within window, increment count
+        if current_time - data["timestamp"] < RATE_LIMIT_WINDOW:
+            data["count"] += 1
+            return data["count"] <= RATE_LIMIT_MAX
+        else:
+            # Reset if outside window
+            IP_REQUESTS[ip] = {"count": 1, "timestamp": current_time}
+            return True
+    else:
+        # New IP address
+        IP_REQUESTS[ip] = {"count": 1, "timestamp": current_time}
+        return True
+
 # GitHub repository information
 GITHUB_REPO_OWNER = "Zidny000"
 GITHUB_REPO_NAME = "textextract-releases"
@@ -37,17 +68,68 @@ def _fetch_releases_from_github():
         }
         
         # Add GitHub token for authenticated requests if available
-        if os.environ.get('GITHUB_TOKEN'):
-            headers['Authorization'] = f"Bearer {os.environ.get('GITHUB_TOKEN')}"
+        github_token = os.environ.get('GITHUB_TOKEN')
+        if github_token:
+            headers['Authorization'] = f"Bearer {github_token}"
+            logger.info("Using authenticated GitHub API request")
+        else:
+            logger.warning("No GITHUB_TOKEN environment variable set - using unauthenticated requests with lower rate limits")
         
-        # Fetch releases from GitHub API
-        response = requests.get(f"{GITHUB_API_BASE}/releases", headers=headers)
-        response.raise_for_status()
-        
-        releases = response.json()
-        return releases
+        # Try to fetch releases from GitHub API
+        try:
+            response = requests.get(f"{GITHUB_API_BASE}/releases", headers=headers, timeout=10)
+            response.raise_for_status()
+            releases = response.json()
+            logger.info(f"Successfully fetched {len(releases)} releases from GitHub API")
+            return releases
+        except requests.exceptions.HTTPError as http_err:
+            if response.status_code == 403 and 'rate limit exceeded' in response.text.lower():
+                logger.error("GitHub API rate limit exceeded")
+                # Fall back to cached data if available, otherwise use static fallback
+                if UPDATE_CACHE['data']:
+                    logger.info("Using cached release data due to rate limit")
+                    return UPDATE_CACHE['data']
+                else:
+                    logger.info("Using fallback release data")
+                    return _get_fallback_release_data()
+            else:
+                logger.error(f"HTTP error when fetching releases: {http_err}")
+                raise
     except Exception as e:
         logger.error(f"Error fetching releases from GitHub: {e}")
+        # Try to use fallback data
+        return _get_fallback_release_data()
+
+def _get_fallback_release_data():
+    """Get fallback release data when GitHub API is unavailable"""
+    try:
+        # First try to load from a local file
+        fallback_file = os.path.join(os.path.dirname(__file__), '..', 'data', 'latest_release.json')
+        if os.path.exists(fallback_file):
+            try:
+                with open(fallback_file, 'r') as f:
+                    data = json.load(f)
+                logger.info(f"Loaded fallback release data from {fallback_file}")
+                return data if isinstance(data, list) else [data]
+            except Exception as e:
+                logger.error(f"Error loading fallback release data: {e}")
+        
+        # If no file or error loading, use hardcoded data as last resort
+        logger.info("Using hardcoded fallback release data")
+        return [{
+            "tag_name": "v1.0.0",
+            "published_at": "2024-05-20T00:00:00Z",
+            "body": "Initial release of TextExtract with automatic update functionality.",
+            "draft": False,
+            "prerelease": False,
+            "assets": [{
+                "name": "TextExtract-1.0.0-windows.exe",
+                "browser_download_url": "https://github.com/Zidny000/textextract-releases/releases/download/v1.0.0/TextExtract-Setup-1.0.0.exe",
+                "size": 15000000  # Approximate size in bytes
+            }]
+        }]
+    except Exception as e:
+        logger.error(f"Error getting fallback release data: {e}")
         return []
 
 def get_cached_releases():
@@ -58,12 +140,28 @@ def get_cached_releases():
     if (current_time - UPDATE_CACHE['last_updated'] > UPDATE_CACHE['cache_ttl'] or 
         UPDATE_CACHE['data'] is None):
         
+        # Attempt to fetch new data
         releases = _fetch_releases_from_github()
         
+        # Only update cache if we got valid data
         if releases:
             UPDATE_CACHE['data'] = releases
             UPDATE_CACHE['last_updated'] = current_time
             
+            # Save the latest release data to a file for fallback purposes
+            try:
+                # Ensure data directory exists
+                data_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
+                os.makedirs(data_dir, exist_ok=True)
+                
+                # Write latest release to a JSON file
+                with open(os.path.join(data_dir, 'latest_release.json'), 'w') as f:
+                    json.dump(releases, f, indent=2)
+                logger.debug("Successfully saved latest release data to file for fallback")
+            except Exception as e:
+                logger.warning(f"Failed to save release data to file: {e}")
+    
+    # Return cached data or empty list if cache is empty
     return UPDATE_CACHE['data'] or []
 
 def parse_version(version_str):
@@ -87,15 +185,35 @@ def is_newer_version(version1, version2):
 @update_routes.route('/api/updates/latest', methods=['GET'])
 def get_latest_update():
     """Get information about the latest available update"""
+    # Get request details for better logging
+    client_ip = request.remote_addr
+    client_agent = request.user_agent.string if request.user_agent else "Unknown"
+    
     try:
+        # Check rate limiting
+        if not check_rate_limit(client_ip):
+            logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+            return jsonify({
+                "available": False,
+                "message": "Rate limit exceeded. Please try again later.",
+                "error": "rate_limit_exceeded"
+            }), 429
+        
+        # Log the update check request
+        logger.info(f"Update check: IP={client_ip}, Agent={client_agent}")
+        
         # Get the client version and platform from query parameters
         client_version = request.args.get('version', '1.0.0')
         client_platform = request.args.get('platform', 'windows')
+        client_channel = request.args.get('channel', 'stable')
+        
+        logger.info(f"Client details: Version={client_version}, Platform={client_platform}, Channel={client_channel}")
         
         # Get GitHub releases (cached)
         releases = get_cached_releases()
         
         if not releases:
+            logger.warning("No releases found in cache or from GitHub API")
             return jsonify({
                 "available": False,
                 "message": "No releases found"
