@@ -8,10 +8,12 @@ import sys
 import json
 import tempfile
 import shutil
+import threading
 import subprocess
 import requests
 import time
 import logging
+import traceback
 from threading import Thread
 import tkinter as tk
 from tkinter import messagebox
@@ -203,6 +205,7 @@ class UpdateManager:
                   f"Would you like to download and install this update now?")
                   
         result = messagebox.askyesno("Software Update", message, parent=parent_window)
+        logger.info(f"User response to update prompt: {'Yes' if result else 'No'}")
         return result
     
     def download_and_install_update(self, parent_window=None, show_progress=True):
@@ -214,138 +217,687 @@ class UpdateManager:
         if self.update_in_progress:
             logger.info("Update already in progress")
             return False
-            
+        
+        logger.info("Starting update download and installation")
         self.update_in_progress = True
         
-        # Start update in a background thread
-        self.update_thread = Thread(
-            target=self._perform_update_process,
-            args=(parent_window, show_progress),
-            daemon=True
-        )
-        self.update_thread.start()
-        return True
+        # Create a separate process to handle the update
+        # This is more reliable than using threads as it doesn't depend on the main app
+        try:
+            # First, show a message to the user
+            if parent_window:
+                messagebox.showinfo(
+                    "Starting Update",
+                    "The update will now download and install in the background.\n"
+                    "The application will close automatically when the update is ready to install.",
+                    parent=parent_window
+                )
+            
+            logger.info("Creating standalone update process")
+            
+            # Create a separate update process using the system Python interpreter
+            if getattr(sys, 'frozen', False):
+                # Running as compiled application
+                app_path = os.path.dirname(sys.executable)
+                standalone_updater_path = os.path.join(app_path, "standalone_updater.py")
+                
+                # Create the standalone updater script if it doesn't exist
+                with open(standalone_updater_path, 'w') as f:
+                    f.write(self._generate_standalone_updater_code())
+                
+                # Launch the standalone updater
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 1  # SW_SHOWNORMAL
+                
+                # Get the Python executable from the system (not the frozen one)
+                python_exe = sys.executable
+                
+                # Launch the updater
+                process = subprocess.Popen(
+                    f'"{python_exe}" "{standalone_updater_path}" "{self.download_url}" "{self.latest_version}"',
+                    startupinfo=startupinfo,
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                    shell=True
+                )
+                logger.info(f"Standalone updater process launched with PID: {process.pid}")
+            else:
+                # Running in development mode
+                # Use a similar approach but with the current Python interpreter
+                python_exe = sys.executable
+                standalone_updater_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "standalone_updater.py")
+                
+                # Create the standalone updater script
+                with open(standalone_updater_path, 'w') as f:
+                    f.write(self._generate_standalone_updater_code())
+                
+                # Launch it
+                process = subprocess.Popen(
+                    f'"{python_exe}" "{standalone_updater_path}" "{self.download_url}" "{self.latest_version}"',
+                    shell=True
+                )
+                logger.info(f"Dev mode standalone updater process launched with PID: {process.pid}")
+                
+            # Schedule application shutdown after a short delay
+            if parent_window:
+                parent_window.after(1500, lambda: self._safe_shutdown_application(parent_window))
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error launching standalone updater: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            self.update_in_progress = False
+            
+            # Show error in main thread
+            if parent_window:
+                messagebox.showerror(
+                    "Update Error", 
+                    f"Failed to start the update process:\n{str(e)}",
+                    parent=parent_window
+                )
+            return False
     
     def _perform_update_process(self, parent_window=None, show_progress=True):
         """Perform the actual update process in a background thread"""
         try:
-            # Create progress dialog if requested
-            if show_progress and parent_window:
-                progress_dialog = self._create_progress_dialog(parent_window)
-                progress_dialog.update()
-            else:
-                progress_dialog = None
-                
-            # Create a temporary directory for the download
+            # Create a persistent copy of the installer outside the temp directory
+            persistent_installer_path = os.path.join(os.path.dirname(tempfile.gettempdir()), f"{APP_NAME}_Setup.exe")
+            progress_dialog = None
+            
+            # Create a temporary directory for the initial download
             with tempfile.TemporaryDirectory() as temp_dir:
-                # Update progress
-                if progress_dialog:
-                    progress_dialog.update_status("Downloading update...")
-                    progress_dialog.update_progress(10)
+                temp_installer_path = os.path.join(temp_dir, f"{APP_NAME}_Setup.exe")
+                
+                # Show progress dialog in the main thread if requested
+                if show_progress and parent_window:
+                    logger.info("Creating progress dialog in main thread")
+                    try:
+                        # Use after to create dialog in main thread and wait for confirmation
+                        dialog_created = threading.Event()
+                        parent_window.after(0, lambda: self._create_and_show_progress_dialog(
+                            parent_window, "Downloading update...", dialog_created))
+                        
+                        # Wait for dialog creation with timeout
+                        dialog_created.wait(timeout=3.0)
+                        
+                        # Verify dialog was created successfully
+                        if hasattr(self, 'progress_dialog') and self.progress_dialog:
+                            logger.info("Progress dialog created successfully")
+                        else:
+                            logger.warning("Progress dialog may not have been created properly")
+                    except Exception as e:
+                        logger.error(f"Error creating progress dialog: {e}")
+                        logger.error(f"Traceback: {traceback.format_exc()}")
                 
                 # Download the update file
-                installer_path = os.path.join(temp_dir, f"{APP_NAME}_Setup.exe")
-                self._download_file(self.download_url, installer_path)
-                
-                # Update progress
-                if progress_dialog:
-                    progress_dialog.update_status("Download complete. Preparing to install...")
-                    progress_dialog.update_progress(50)
-                
-                # Execute the installer
-                # Before running installer, close the progress dialog and the application
-                if progress_dialog:
-                    progress_dialog.update_status("Starting installation...")
-                    progress_dialog.update_progress(75)
-                    time.sleep(1)  # Give user a moment to see the message
-                    progress_dialog.destroy()
-                
-                # Get the current executable path to restart after update
-                if getattr(sys, 'frozen', False):
-                    app_path = sys.executable
-                else:
-                    app_path = None
-                
-                # Run the installer
-                # Use silent installation if available
-                silent_args = "/SILENT" if self.update_info.get("silent_install", False) else ""
-                cmd = f'"{installer_path}" {silent_args}'
-                
-                # Launch installer and exit current instance
-                if parent_window:
-                    parent_window.destroy()
-                
+                try:
+                    logger.info(f"Downloading update from {self.download_url}")
+                    self._download_file(self.download_url, temp_installer_path)
+                    logger.info("Download completed successfully")
+                    
+                    # Copy to persistent location - but first make sure destination directory exists
+                    persistent_dir = os.path.dirname(persistent_installer_path)
+                    if not os.path.exists(persistent_dir):
+                        os.makedirs(persistent_dir, exist_ok=True)
+                    
+                    # Make sure the target file doesn't exist (to avoid access conflicts)
+                    if os.path.exists(persistent_installer_path):
+                        try:
+                            os.unlink(persistent_installer_path)
+                        except Exception as e:
+                            logger.warning(f"Could not remove existing installer: {e}")
+                            # Generate a unique filename instead
+                            persistent_installer_path = os.path.join(
+                                os.path.dirname(persistent_installer_path),
+                                f"{APP_NAME}_Setup_{int(time.time())}.exe"
+                            )
+                    
+                    # Copy the file
+                    shutil.copy2(temp_installer_path, persistent_installer_path)
+                    logger.info(f"Copied installer to {persistent_installer_path}")
+                    
+                    # Ensure we don't have any open handles to the temp file
+                    # This is important for clean temp directory removal
+                    import gc
+                    gc.collect()  # Force garbage collection to close any lingering file handles
+                except Exception as e:
+                    logger.error(f"Failed to download update: {e}")
+                    # Update UI in main thread
+                    if parent_window:
+                        parent_window.after(0, lambda: messagebox.showerror(
+                            "Download Error", 
+                            f"Failed to download the update:\n{str(e)}",
+                            parent=parent_window
+                        ))
+                    self.update_in_progress = False
+                    return
+            
+            # Get the current executable path
+            if getattr(sys, 'frozen', False):
+                app_path = sys.executable
+            else:
+                app_path = None
+            
+            # Use silent installation if available
+            silent_args = "/SILENT" if self.update_info.get("silent_install", False) else ""
+            cmd = f'"{persistent_installer_path}" {silent_args}'
+            
+            # Use the main thread to finish the update process
+            if parent_window:
+                parent_window.after(0, lambda: self._finalize_update(parent_window, cmd, persistent_installer_path))
+            else:
+                # No parent window, so just run the installer directly
                 subprocess.Popen(cmd, shell=True)
-                
-                # Exit the application to allow the update to proceed
                 sys.exit(0)
                 
         except Exception as e:
             logger.error(f"Error during update process: {e}")
             self.update_in_progress = False
             
-            if progress_dialog and progress_dialog.winfo_exists():
-                progress_dialog.destroy()
-                
-            messagebox.showerror(
-                "Update Error", 
-                f"An error occurred during the update process:\n{str(e)}",
+            # Show error in main thread
+            if parent_window:
+                parent_window.after(0, lambda: messagebox.showerror(
+                    "Update Error", 
+                    f"An error occurred during the update process:\n{str(e)}",
+                    parent=parent_window
+                ))
+            
+    def _finalize_update(self, parent_window, cmd, installer_path):
+        """Finalize the update process in the main thread"""
+        try:
+            # Show final message
+            messagebox.showinfo(
+                "Installing Update",
+                f"The update has been downloaded and will now be installed.\n"
+                f"The application will close and the installer will start automatically.",
                 parent=parent_window
             )
+            
+            logger.info("Starting finalize update process")
+            
+            # Create a batch file to run the installer after the application exits
+            # First try the application directory as it's often writable by the app
+            try:
+                app_dir = None
+                if getattr(sys, 'frozen', False):
+                    app_dir = os.path.dirname(sys.executable)
+                    logger.info(f"Using app directory for batch file: {app_dir}")
+            except Exception:
+                app_dir = None
+                
+            # If app dir isn't available or is read-only, use the user's temp directory
+            if not app_dir or not os.access(app_dir, os.W_OK):
+                user_temp = os.environ.get('TEMP', os.path.expanduser('~'))
+                logger.info(f"Using temp directory for batch file: {user_temp}")
+                batch_dir = user_temp
+            else:
+                batch_dir = app_dir
+                
+            # Generate a unique batch filename to avoid conflicts
+            timestamp = int(time.time())
+            batch_filename = f"{APP_NAME}_Install_Helper_{timestamp}.bat"
+            batch_path = os.path.join(batch_dir, batch_filename)
+            
+            logger.info(f"Creating installer batch file at: {batch_path}")
+            
+            # The batch file waits a moment, then runs the installer
+            try:
+                # Create a robust batch file
+                with open(batch_path, 'w') as f:
+                    f.write('@echo off\n')
+                    f.write('setlocal enabledelayedexpansion\n')
+                    f.write(f'echo Installing update for {APP_NAME}...\n')
+                    f.write('echo Process ID: %RANDOM%-%RANDOM%\n')  # Add some uniqueness
+                    f.write('echo Waiting for application to exit completely...\n')
+                    f.write('timeout /t 5 /nobreak > nul\n')  # Wait 5 seconds
+                    
+                    # Get current process ID (for logging)
+                    f.write('for /f "tokens=2" %%a in (\'tasklist /nh /fi "imagename eq cmd.exe"\') do set PID=%%a\n')
+                    f.write('echo Installer running from CMD process !PID!\n')
+                    
+                    # Run the installer with full path
+                    f.write(f'echo Running installer: {cmd}\n')
+                    f.write(f'start "" {cmd}\n')
+                    f.write('if errorlevel 1 (\n')
+                    f.write('   echo Failed to start installer\n')
+                    f.write('   pause\n')
+                    f.write(') else (\n')
+                    f.write('   echo Installer started successfully\n')
+                    f.write(')\n')
+                    
+                    # Wait, then clean up
+                    f.write('timeout /t 5 /nobreak > nul\n')
+                    f.write('echo Cleaning up...\n')
+                    f.write('timeout /t 2 /nobreak > nul\n')
+                    f.write('del "%~f0" >nul 2>&1\n')  # Self-delete the batch file
+                    f.write('exit\n')
+                
+                logger.info(f"Created installer batch file successfully")
+                
+                # Make sure the batch file is executable
+                os.chmod(batch_path, 0o755)
+                
+                # Make the batch file visible in Explorer so it can be manually run if needed
+                os.system(f'attrib -h "{batch_path}"')
+                
+                # Launch the batch file that will run the installer
+                logger.info("Launching installer batch file")
+                
+                # Use a different approach to launch the batch - more robust
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 1  # SW_SHOWNORMAL
+                
+                # Launch with cmd.exe explicitly to ensure it runs properly
+                cmd_process = subprocess.Popen(
+                    f'cmd.exe /c "{batch_path}"',
+                    startupinfo=startupinfo,
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                    shell=True
+                )
+                
+                logger.info(f"Batch file process launched with PID: {cmd_process.pid}")
+            except Exception as e:
+                logger.error(f"Error creating/launching batch file: {e}")
+                logger.info(f"Traceback: {traceback.format_exc()}")
+                
+                # Fallback to direct launch if batch file creation fails
+                logger.info("Using fallback direct installer launch")
+                subprocess.Popen(cmd, shell=True, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+                logger.info("Launched installer directly as fallback")
+            
+            # Force garbage collection before exit to release any file handles
+            import gc
+            gc.collect()
+            logger.info("Performed garbage collection before shutdown")
+            
+            # Schedule application shutdown
+            logger.info("Scheduling application shutdown")
+            parent_window.after(800, self._safe_shutdown_application, parent_window)
+            
+        except Exception as e:
+            logger.error(f"Error finalizing update: {e}")
+            messagebox.showerror(
+                "Update Error", 
+                f"Failed to launch the installer:\n{str(e)}",
+                parent=parent_window
+            )
+            self.update_in_progress = False
+                
+        except Exception as e:
+            logger.error(f"Error during update process: {e}")
+            self.update_in_progress = False
+                
+            # Show error in main thread
+            if parent_window:
+                parent_window.after(0, lambda: messagebox.showerror(
+                    "Update Error", 
+                    f"An error occurred during the update process:\n{str(e)}",
+                    parent=parent_window
+                ))
+            
+    def _safe_shutdown_application(self, parent_window):
+        """Safely shutdown the application with proper cleanup"""
+        try:
+            logger.info("Performing safe shutdown for update...")
+            
+            # If we have a progress dialog, destroy it
+            if hasattr(self, 'progress_dialog') and self.progress_dialog:
+                try:
+                    if self.progress_dialog.winfo_exists():
+                        self.progress_dialog.destroy()
+                        logger.info("Progress dialog closed successfully")
+                except Exception as e:
+                    logger.error(f"Error closing progress dialog: {e}")
+            
+            # Force garbage collection to release file handles
+            import gc
+            gc.collect()
+            logger.info("Garbage collection performed")
+            
+            # Set flag that update is in progress so other parts of app know
+            if self.app_state:
+                self.app_state.update_in_progress = True
+                logger.info("App state updated - update in progress")
+            
+            # Display a final message to console
+            print("\n\nUpdate is ready. Application will close now and update will install automatically.\n\n")
+            logger.info("Final update message displayed")
+            
+            # Delay slightly to allow messages to be processed
+            time.sleep(1.0)
+            
+            try:
+                # Call destroy explicitly before quit to ensure proper cleanup
+                logger.info("Destroying main window")
+                parent_window.destroy()
+                logger.info("Main window destroyed")
+            except Exception as e:
+                logger.error(f"Error destroying window: {e}")
+            
+            # After a delay, call the final quit
+            logger.info("Scheduling final application quit")
+            if hasattr(parent_window, 'after'):
+                try:
+                    parent_window.after(500, lambda: self._final_quit())
+                    logger.info("Quit scheduled through tkinter")
+                except Exception as e:
+                    logger.error(f"Error scheduling quit: {e}")
+                    # If scheduling fails, quit directly
+                    self._final_quit()
+            else:
+                # If the window was already destroyed, exit more directly
+                logger.info("Window already destroyed, exiting directly")
+                self._final_quit()
+                
+        except Exception as e:
+            logger.error(f"Error during safe shutdown: {e}")
+            # Try direct exit as last resort
+            logger.info("Attempting direct system exit as last resort")
+            sys.exit(0)
+    
+    def _final_quit(self):
+        """Final function to quit the application after update is prepared"""
+        try:
+            logger.info("Final quit executing")
+            # Do one final garbage collection
+            import gc
+            gc.collect()
+            # Exit the application
+            sys.exit(0)
+        except Exception as e:
+            logger.error(f"Error in final quit: {e}")
+            # Force exit
+            os._exit(0)
     
     def _download_file(self, url, destination):
         """Download a file from the given URL to the destination path"""
+        response = None
+        temp_file = f"{destination}.downloading"
         try:
-            response = requests.get(url, stream=True, timeout=30)
-            response.raise_for_status()
+            # First create the directory if it doesn't exist
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
             
-            with open(destination, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
+            # Clean up any existing temporary download file
+            if os.path.exists(temp_file):
+                try:
+                    os.unlink(temp_file)
+                    logger.info("Removed existing temporary download file")
+                except Exception as e:
+                    logger.warning(f"Could not remove existing temp file: {e}")
             
-            return True
+            # Setup headers to help with large files and handle redirects
+            headers = {
+                'User-Agent': f'TextExtract/{self.current_version}',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive'
+            }
+            
+            # Download with explicit cleanup and properly handle redirects
+            logger.info(f"Starting download from {url}")
+            
+            # Use a session to handle redirects properly
+            with requests.Session() as session:
+                # Set session options
+                session.max_redirects = 5
+                
+                # Make the initial request - with stream=True for large files
+                response = session.get(
+                    url, 
+                    stream=True, 
+                    timeout=60,  # Longer timeout for large files
+                    headers=headers,
+                    allow_redirects=True
+                )
+                response.raise_for_status()
+                
+                # Get the file size if available
+                file_size = int(response.headers.get('content-length', 0))
+                if file_size > 0:
+                    logger.info(f"Download size: {file_size / (1024*1024):.2f} MB")
+                    # Store the file size for progress calculations
+                    self._download_total_size = file_size
+                else:
+                    self._download_total_size = 0
+                    
+                # Reset progress tracking
+                self._download_progress = 0
+                
+                # Download with progress tracking
+                downloaded = 0
+                last_log_time = time.time()
+                last_progress_update = time.time()
+                
+                # Download to temporary file
+                with open(temp_file, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=64*1024):  # 64KB chunks
+                        if chunk:
+                            f.write(chunk)
+                            
+                            # Track download progress
+                            downloaded += len(chunk)
+                            
+                            # Update progress for UI
+                            if file_size > 0:
+                                self._download_progress = (downloaded / file_size) * 100
+                                
+                                # Update progress dialog if available
+                                current_time = time.time()
+                                if hasattr(self, 'progress_dialog') and self.progress_dialog and current_time - last_progress_update > 0.3:
+                                    try:
+                                        # First verify dialog still exists
+                                        dialog_exists = False
+                                        try:
+                                            dialog_exists = self.progress_dialog.winfo_exists()
+                                        except Exception as check_err:
+                                            logger.error(f"Error checking if dialog exists: {check_err}")
+                                            
+                                        if dialog_exists:
+                                            # Update on main thread
+                                            progress_value = int(self._download_progress)
+                                            status_text = f"Downloading: {progress_value}% ({downloaded/(1024*1024):.2f} MB)"
+                                            
+                                            # Access root through progress dialog safely
+                                            if hasattr(self.progress_dialog, 'master') and self.progress_dialog.master:
+                                                try:
+                                                    self.progress_dialog.master.after(
+                                                        0, 
+                                                        lambda: self._update_progress_safe(progress_value, status_text)
+                                                    )
+                                                    logger.debug(f"Progress update scheduled: {progress_value}%")
+                                                except Exception as after_err:
+                                                    logger.error(f"Error scheduling progress update: {after_err}")
+                                            else:
+                                                logger.warning("Progress dialog has no master attribute")
+                                        else:
+                                            logger.warning("Progress dialog no longer exists")
+                                            
+                                        last_progress_update = current_time
+                                    except Exception as e:
+                                        logger.error(f"Error updating progress dialog: {e}")
+                            
+                            # Log progress every few seconds
+                            current_time = time.time()
+                            if current_time - last_log_time > 3.0 and file_size > 0:
+                                percent = (downloaded / file_size) * 100
+                                logger.info(f"Download progress: {percent:.1f}% ({downloaded/(1024*1024):.2f} MB)")
+                                last_log_time = current_time
+                
+                # Log completion
+                logger.info(f"Download complete: {downloaded/(1024*1024):.2f} MB")
+                
+                # Set final progress
+                if file_size > 0:
+                    self._download_progress = 100
+                    # Final update to progress dialog
+                    if hasattr(self, 'progress_dialog') and self.progress_dialog:
+                        try:
+                            if self.progress_dialog.winfo_exists():
+                                self.progress_dialog.master.after(
+                                    0, 
+                                    lambda: self._update_progress_safe(100, f"Download complete: {downloaded/(1024*1024):.2f} MB")
+                                )
+                        except Exception as e:
+                            logger.error(f"Error updating final progress: {e}")
+                
+                # Explicit close and cleanup of the response
+                response.close()
+                response = None
+            
+            # Verify the temporary file exists and has content
+            if not os.path.exists(temp_file) or os.path.getsize(temp_file) == 0:
+                raise Exception(f"Downloaded file is empty or missing: {temp_file}")
+            
+            # Rename the temporary file to the final destination
+            logger.info(f"Moving downloaded file to final destination: {destination}")
+            if os.path.exists(destination):
+                try:
+                    os.unlink(destination)  # Remove existing file
+                except Exception as e:
+                    logger.warning(f"Could not remove existing destination file: {e}")
+                    # Try with a unique destination instead
+                    destination = f"{destination}.{int(time.time())}"
+                    logger.info(f"Using alternative destination: {destination}")
+            
+            # Move the file using shutil instead of rename (more robust)
+            shutil.move(temp_file, destination)
+            
+            # Final verification
+            if os.path.exists(destination) and os.path.getsize(destination) > 0:
+                logger.info(f"Download completed and verified: {os.path.getsize(destination)/(1024*1024):.2f} MB")
+                return True
+            else:
+                raise Exception("Final downloaded file verification failed")
+                
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error during download: {e}")
+            if isinstance(e, requests.exceptions.ConnectionError):
+                logger.error("Connection error - check your internet connection")
+            elif isinstance(e, requests.exceptions.Timeout):
+                logger.error("Download timed out - server may be slow or file too large")
+            elif isinstance(e, requests.exceptions.HTTPError):
+                logger.error(f"HTTP error {e.response.status_code if hasattr(e, 'response') else 'unknown'}")
+            raise Exception(f"Download failed: {str(e)}")
         except Exception as e:
             logger.error(f"Error downloading update: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             raise
+        finally:
+            # Ensure resources are cleaned up
+            if response:
+                try:
+                    response.close()
+                except:
+                    pass
+            
+            # Clean up temp file if it exists and we failed
+            if os.path.exists(temp_file):
+                try:
+                    os.unlink(temp_file)
+                    logger.info("Cleaned up temporary download file")
+                except Exception as e:
+                    logger.warning(f"Could not remove temporary file: {e}")
     
     def _create_progress_dialog(self, parent):
         """Create a progress dialog for the update process"""
         dialog = tk.Toplevel(parent)
         dialog.title("Downloading Update")
-        dialog.geometry("400x150")
+        dialog.geometry("450x180")
         dialog.resizable(False, False)
         dialog.transient(parent)
         dialog.grab_set()
         
         # Center the dialog on the parent window
         dialog.geometry("+%d+%d" % (
-            parent.winfo_rootx() + parent.winfo_width()//2 - 200,
-            parent.winfo_rooty() + parent.winfo_height()//2 - 75
+            parent.winfo_rootx() + parent.winfo_width()//2 - 225,
+            parent.winfo_rooty() + parent.winfo_height()//2 - 90
         ))
         
-        # Dialog content
-        tk.Label(dialog, text=f"Downloading update for {APP_NAME}...", font=("Arial", 12)).pack(pady=(20, 10))
+        # Configure dialog appearance
+        dialog.configure(bg="#f0f0f0")  # Light gray background
+        
+        # Create a frame for better layout
+        main_frame = tk.Frame(dialog, bg="#f0f0f0")
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=15)
+        
+        # Dialog title
+        tk.Label(
+            main_frame, 
+            text=f"Downloading update for {APP_NAME}...", 
+            font=("Arial", 12, "bold"),
+            bg="#f0f0f0"
+        ).pack(pady=(5, 15), anchor='w')
+        
+        # Progress frame
+        progress_frame = tk.Frame(main_frame, bg="#f0f0f0")
+        progress_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Progress bar - using Progressbar from ttk for better appearance
+        try:
+            from tkinter import ttk
+            progress_var = tk.DoubleVar(value=0)
+            progress_bar = ttk.Progressbar(
+                progress_frame,
+                orient="horizontal",
+                length=410,
+                mode="determinate",
+                variable=progress_var
+            )
+        except ImportError:
+            # Fallback to standard Tk widgets if ttk is not available
+            progress_var = tk.IntVar(value=0)
+            progress_bar = tk.Scale(
+                progress_frame, 
+                from_=0, to=100, 
+                orient=tk.HORIZONTAL, 
+                variable=progress_var,
+                state=tk.DISABLED,
+                length=410,
+                showvalue=0,  # Don't show the value on the scale
+                sliderlength=10  # Smaller slider
+            )
+        
+        progress_bar.pack(fill=tk.X, pady=5)
+        
+        # Progress percentage
+        percent_label = tk.Label(
+            progress_frame, 
+            text="0%", 
+            font=("Arial", 9),
+            bg="#f0f0f0"
+        )
+        percent_label.pack(anchor='e')
         
         # Status label
-        status_label = tk.Label(dialog, text="Initializing...", font=("Arial", 10))
-        status_label.pack(pady=(0, 10))
-        
-        # Progress bar
-        progress_var = tk.IntVar(value=0)
-        progress_bar = tk.Scale(
-            dialog, 
-            from_=0, to=100, 
-            orient=tk.HORIZONTAL, 
-            variable=progress_var,
-            state=tk.DISABLED,
-            length=350
+        status_label = tk.Label(
+            main_frame, 
+            text="Initializing download...", 
+            font=("Arial", 10),
+            bg="#f0f0f0"
         )
-        progress_bar.pack(pady=(0, 20), padx=25)
+        status_label.pack(pady=(5, 15), fill=tk.X)
+        
+        # Cancel button (optional)
+        # We won't implement actual cancellation now, but the button will be there for UI consistency
+        button_frame = tk.Frame(main_frame, bg="#f0f0f0")
+        button_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        def cancel_operation():
+            dialog.destroy()
+            
+        cancel_btn = tk.Button(
+            button_frame,
+            text="Cancel",
+            command=cancel_operation,
+            width=10
+        )
+        cancel_btn.pack(side=tk.RIGHT)
         
         # Add methods to update the progress dialog
         def update_progress(value):
             progress_var.set(value)
+            percent_label.config(text=f"{int(value)}%")
             dialog.update_idletasks()
             
         def update_status(text):
@@ -355,15 +907,481 @@ class UpdateManager:
         dialog.update_progress = update_progress
         dialog.update_status = update_status
         
+        # Initialize progress display
+        update_progress(0)
+        update_status("Preparing to download...")
+        
         return dialog
+        
+    def _create_and_show_progress_dialog(self, parent, status_text, dialog_created=None):
+        """Create and show a progress dialog in the main thread"""
+        try:
+            logger.info("Creating progress dialog...")
+            # Create dialog
+            dialog = self._create_progress_dialog(parent)
+            
+            # Initialize progress tracking variables
+            self._download_progress = 0
+            self._download_total_size = 0
+            self._progress_value = 5  # Start at 5%
+            
+            # Set initial status
+            dialog.update_status(status_text)
+            dialog.update_progress(5)
+            
+            # Store as instance variable for later access
+            self.progress_dialog = dialog
+            
+            # Force an update to make sure dialog appears
+            parent.update_idletasks()
+            
+            # Schedule auto-updates
+            self._schedule_progress_updates(parent)
+            
+            logger.info("Progress dialog created and displayed")
+            
+            # Signal that the dialog has been created
+            if dialog_created is not None:
+                dialog_created.set()
+                
+            return dialog
+        except Exception as e:
+            logger.error(f"Error creating progress dialog: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            # Signal even on error to unblock the waiting thread
+            if dialog_created is not None:
+                dialog_created.set()
+            return None
+            
+    def _schedule_progress_updates(self, parent):
+        """Schedule progress updates to keep the UI responsive"""
+        if not hasattr(self, 'progress_dialog') or not self.progress_dialog:
+            return
+            
+        try:
+            if self.progress_dialog.winfo_exists():
+                # Use actual download progress if available, otherwise use animated progress
+                if hasattr(self, '_download_progress') and self._download_progress > 0:
+                    # Use the actual download progress
+                    progress = int(self._download_progress)
+                    self.progress_dialog.update_progress(progress)
+                    
+                    # Update status with download info if available
+                    if hasattr(self, '_download_total_size') and self._download_total_size > 0:
+                        downloaded = (self._download_progress / 100) * self._download_total_size
+                        self.progress_dialog.update_status(
+                            f"Downloading: {progress}% ({downloaded/(1024*1024):.2f} MB)"
+                        )
+                else:
+                    # Fallback to animated progress when download hasn't started yet
+                    progress = getattr(self, '_progress_value', 10)
+                    progress = min(progress + 2, 15)  # Increment but cap at 15% for initial stages
+                    self._progress_value = progress
+                    self.progress_dialog.update_progress(progress)
+                
+                # Schedule next update
+                parent.after(300, lambda: self._schedule_progress_updates(parent))
+        except Exception as e:
+            logger.error(f"Error updating progress dialog: {e}")
+            # Don't reschedule if there's an error
+            
+    def _generate_standalone_updater_code(self):
+        """Generate the Python code for the standalone updater script"""
+        code = """#!/usr/bin/env python
+# Standalone updater script for TextExtract
+# This script is automatically generated and runs independently of the main application
+
+import os
+import sys
+import time
+import tempfile
+import shutil
+import subprocess
+import logging
+import traceback
+import tkinter as tk
+from tkinter import ttk
+import threading
+import requests
+
+# Configure logging
+log_dir = tempfile.gettempdir()
+log_file = os.path.join(log_dir, "textextract_updater.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("StandaloneUpdater")
+
+class UpdaterUI:
+    def __init__(self, download_url, version):
+        self.download_url = download_url
+        self.version = version
+        self.download_progress = 0
+        self.download_total_size = 0
+        
+        # Create the UI
+        self.root = tk.Tk()
+        self.root.title("TextExtract Update")
+        self.root.geometry("500x250")
+        self.root.configure(bg="#f0f0f0")
+        self.root.resizable(False, False)
+        
+        # Center the window
+        self.root.update_idletasks()
+        width = self.root.winfo_width()
+        height = self.root.winfo_height()
+        x = (self.root.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.root.winfo_screenheight() // 2) - (height // 2)
+        self.root.geometry(f"+{x}+{y}")
+        
+        # Main frame
+        main_frame = tk.Frame(self.root, bg="#f0f0f0")
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Header
+        tk.Label(
+            main_frame, 
+            text=f"Downloading TextExtract Update v{version}", 
+            font=("Arial", 14, "bold"),
+            bg="#f0f0f0"
+        ).pack(pady=(5, 15), anchor='center')
+        
+        # Progress frame
+        self.progress_frame = tk.Frame(main_frame, bg="#f0f0f0")
+        self.progress_frame.pack(fill=tk.X, pady=(10, 5))
+        
+        # Progress bar
+        self.progress_var = tk.DoubleVar(value=0)
+        try:
+            self.progress_bar = ttk.Progressbar(
+                self.progress_frame,
+                orient="horizontal",
+                length=460,
+                mode="determinate",
+                variable=self.progress_var
+            )
+        except:
+            # Fallback for older Tk versions
+            self.progress_bar = tk.Scale(
+                self.progress_frame,
+                from_=0, to=100,
+                orient=tk.HORIZONTAL,
+                variable=self.progress_var,
+                state=tk.DISABLED,
+                length=460,
+                showvalue=0,
+                sliderlength=10
+            )
+        
+        self.progress_bar.pack(fill=tk.X, pady=5)
+        
+        # Progress text
+        self.percent_label = tk.Label(
+            self.progress_frame,
+            text="0%",
+            font=("Arial", 9),
+            bg="#f0f0f0"
+        )
+        self.percent_label.pack(anchor='e')
+        
+        # Status text
+        self.status_label = tk.Label(
+            main_frame,
+            text="Preparing to download...",
+            font=("Arial", 10),
+            bg="#f0f0f0"
+        )
+        self.status_label.pack(pady=(5, 15), fill=tk.X)
+        
+        # Console output (collapsible)
+        self.show_console = tk.BooleanVar(value=False)
+        console_toggle = ttk.Checkbutton(
+            main_frame, 
+            text="Show details", 
+            variable=self.show_console,
+            command=self.toggle_console
+        )
+        console_toggle.pack(anchor='w', pady=(5, 0))
+        
+        # Console frame (hidden by default)
+        self.console_frame = tk.Frame(main_frame, bg="#f0f0f0")
+        
+        # Text widget for console output
+        self.console = tk.Text(self.console_frame, height=6, width=60, wrap=tk.WORD)
+        self.console.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, pady=5)
+        
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(self.console_frame, command=self.console.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.console["yscrollcommand"] = scrollbar.set
+        
+        # Configure console text widget
+        self.console.configure(state="disabled")
+        
+        # Start download thread
+        self.download_thread = threading.Thread(target=self.download_and_install)
+        self.download_thread.daemon = True
+        self.download_thread.start()
+        
+        # Start monitoring thread status
+        self.root.after(100, self.check_download_status)
+        
+    def toggle_console(self):
+        if self.show_console.get():
+            self.console_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+            self.root.geometry("500x400")
+        else:
+            self.console_frame.pack_forget()
+            self.root.geometry("500x250")
+    
+    def update_console(self, message):
+        self.console.configure(state="normal")
+        self.console.insert(tk.END, message + "\\n")
+        self.console.see(tk.END)
+        self.console.configure(state="disabled")
+    
+    def update_progress(self, value, status_text=None):
+        self.progress_var.set(value)
+        self.percent_label.configure(text=f"{int(value)}%")
+        if status_text:
+            self.status_label.configure(text=status_text)
+            self.update_console(status_text)
+        self.root.update_idletasks()
+    
+    def check_download_status(self):
+        if self.download_thread.is_alive():
+            self.root.after(100, self.check_download_status)
+        else:
+            # Download thread has completed
+            self.update_progress(100, "Installation completed!")
+            self.root.after(2000, self.root.destroy)
+    
+    def download_and_install(self):
+        try:
+            self.update_progress(5, "Starting download...")
+            
+            # Create a temporary directory for the download
+            with tempfile.TemporaryDirectory() as temp_dir:
+                installer_path = os.path.join(temp_dir, "TextExtract_Setup.exe")
+                
+                self.update_progress(10, "Connecting to download server...")
+                
+                # Download the file with progress tracking
+                self.download_file(self.download_url, installer_path)
+                
+                self.update_progress(95, "Launching installer...")
+                
+                # Create a batch file to run the installer
+                self.create_and_run_installer_batch(installer_path)
+                
+                self.update_progress(100, "Installation process started!")
+        except Exception as e:
+            logger.error(f"Error in download thread: {e}")
+            logger.error(traceback.format_exc())
+            self.update_progress(0, f"Error: {str(e)}")
+    
+    def download_file(self, url, destination):
+        response = None
+        temp_file = f"{destination}.downloading"
+        
+        try:
+            # Create directory if needed
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            
+            # Setup headers
+            headers = {
+                'User-Agent': 'TextExtract/Updater',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive'
+            }
+            
+            # Use a session for better handling
+            with requests.Session() as session:
+                session.max_redirects = 5
+                
+                # Make the request with streaming
+                response = session.get(
+                    url,
+                    stream=True,
+                    timeout=60,
+                    headers=headers,
+                    allow_redirects=True
+                )
+                response.raise_for_status()
+                
+                # Get file size if available
+                file_size = int(response.headers.get('content-length', 0))
+                if file_size > 0:
+                    logger.info(f"Download size: {file_size / (1024*1024):.2f} MB")
+                    self.download_total_size = file_size
+                    self.update_progress(15, f"Starting download: {file_size / (1024*1024):.2f} MB")
+                
+                # Download with progress tracking
+                downloaded = 0
+                last_progress_update = time.time()
+                
+                with open(temp_file, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=64*1024):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            
+                            # Update progress
+                            current_time = time.time()
+                            if file_size > 0 and current_time - last_progress_update > 0.3:
+                                progress = int((downloaded / file_size) * 80) + 15  # 15-95% range
+                                self.root.after(
+                                    0, 
+                                    lambda p=progress, d=downloaded: self.update_progress(
+                                        p, f"Downloading: {int((downloaded/file_size)*100)}% ({downloaded/(1024*1024):.2f} MB)"
+                                    )
+                                )
+                                last_progress_update = current_time
+                
+                # Close response
+                response.close()
+                
+                # Check temp file
+                if not os.path.exists(temp_file) or os.path.getsize(temp_file) == 0:
+                    raise Exception("Downloaded file is empty or missing")
+                
+                # Move file to destination
+                if os.path.exists(destination):
+                    os.unlink(destination)
+                shutil.move(temp_file, destination)
+                
+                return True
+        
+        except Exception as e:
+            logger.error(f"Download error: {e}")
+            raise
+        finally:
+            # Clean up
+            if response:
+                try:
+                    response.close()
+                except:
+                    pass
+            
+            if os.path.exists(temp_file):
+                try:
+                    os.unlink(temp_file)
+                except:
+                    pass
+    
+    def create_and_run_installer_batch(self, installer_path):
+        # Create a batch file to run the installer
+        batch_dir = tempfile.gettempdir()
+        batch_file = os.path.join(batch_dir, f"TextExtract_Install_{int(time.time())}.bat")
+        
+        with open(batch_file, 'w') as f:
+            f.write('@echo off\\n')
+            f.write('setlocal enabledelayedexpansion\\n')
+            f.write('echo Installing TextExtract update...\\n')
+            f.write('echo Process ID: %RANDOM%-%RANDOM%\\n')
+            f.write('timeout /t 3 /nobreak > nul\\n')
+            f.write(f'echo Running installer: "{installer_path}"\\n')
+            f.write(f'start "" "{installer_path}" /SILENT\\n')
+            f.write('if errorlevel 1 (\\n')
+            f.write('   echo Failed to start installer\\n')
+            f.write('   pause\\n')
+            f.write(') else (\\n')
+            f.write('   echo Installer started successfully\\n')
+            f.write(')\\n')
+            f.write('timeout /t 5 /nobreak > nul\\n')
+            f.write('echo Cleaning up...\\n')
+            f.write('timeout /t 2 /nobreak > nul\\n')
+            f.write('del "%~f0" >nul 2>&1\\n')
+            f.write('exit\\n')
+        
+        # Make executable
+        os.chmod(batch_file, 0o755)
+        
+        # Launch the batch file
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 1  # SW_SHOWNORMAL
+        
+        process = subprocess.Popen(
+            f'cmd.exe /c "{batch_file}"',
+            startupinfo=startupinfo,
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+            shell=True
+        )
+        logger.info(f"Installer batch process started with PID: {process.pid}")
+
+def main():
+    if len(sys.argv) < 3:
+        print("Usage: standalone_updater.py <download_url> <version>")
+        sys.exit(1)
+    
+    download_url = sys.argv[1]
+    version = sys.argv[2]
+    
+    logger.info(f"Starting standalone updater for TextExtract v{version}")
+    logger.info(f"Download URL: {download_url}")
+    
+    try:
+        updater = UpdaterUI(download_url, version)
+        updater.root.mainloop()
+    except Exception as e:
+        logger.error(f"Unhandled error in updater: {e}")
+        logger.error(traceback.format_exc())
+        
+        # Show error message to user
+        try:
+            import tkinter.messagebox as messagebox
+            messagebox.showerror("Update Error", f"An error occurred during the update process:\\n{str(e)}")
+        except:
+            pass
+
+if __name__ == "__main__":
+    main()
+"""
+        return code
+
+    def _update_progress_safe(self, progress_value, status_text=None):
+        """Update progress dialog safely from any thread"""
+        try:
+            # First check if the dialog reference exists
+            if not hasattr(self, 'progress_dialog') or not self.progress_dialog:
+                logger.warning("Cannot update progress: dialog reference is missing")
+                return
+                
+            # Now try to safely check if the dialog widget still exists in the UI
+            try:
+                dialog_exists = self.progress_dialog.winfo_exists()
+            except Exception as e:
+                logger.error(f"Error checking if progress dialog exists: {e}")
+                return
+                
+            if dialog_exists:
+                try:
+                    self.progress_dialog.update_progress(progress_value)
+                    if status_text:
+                        self.progress_dialog.update_status(status_text)
+                except Exception as e:
+                    logger.error(f"Error updating progress dialog: {e}")
+            else:
+                logger.warning("Cannot update progress: dialog no longer exists")
+        except Exception as e:
+            logger.error(f"Error in safe progress update: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
         
 # Helper function to check for updates at application startup
 def check_for_updates_at_startup(app_state=None, parent_window=None, silent=False):
     """Check for updates at application startup"""
+    logger.info("Checking for updates at startup")
     update_manager = UpdateManager(app_state)
     
     # Check if it's time to check for updates
     if not update_manager.should_check_for_updates():
+        logger.info("Skipping update check at startup (checked recently)")
         return False
         
     try:
@@ -371,49 +1389,143 @@ def check_for_updates_at_startup(app_state=None, parent_window=None, silent=Fals
         update_available = update_manager.check_for_updates()
         
         if update_available and not silent:
+            logger.info("Update available at startup, showing prompt")
+            
+            # Verify parent window is valid before showing prompt
+            if parent_window and hasattr(parent_window, 'winfo_exists'):
+                try:
+                    if not parent_window.winfo_exists():
+                        logger.warning("Parent window no longer exists, can't show update prompt")
+                        return update_available
+                except Exception as e:
+                    logger.error(f"Error checking window existence: {e}")
+            
             # Show update prompt
             should_update = update_manager.prompt_for_update(parent_window)
             
             if should_update:
-                # Download and install update
+                logger.info("User accepted startup update, starting download and installation")
+                # Use standalone updater instead of trying to do it in the main app
                 update_manager.download_and_install_update(parent_window)
+                logger.info("Standalone update process initiated from startup check")
         
         return update_available
     except Exception as e:
         logger.error(f"Error checking for updates at startup: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return False
         
 # Create a background thread to check for updates
 def start_background_update_check(app_state=None, parent_window=None):
     """Start a background thread to check for updates"""
     def check_in_background():
-        # Wait a bit to allow application to fully start
-        time.sleep(20)
-        
         try:
-            update_manager = UpdateManager(app_state)
-            update_available = update_manager.check_for_updates()
+            logger.info("Starting background update check thread")
+            # Wait a bit to allow application to fully start
+            time.sleep(10)
             
-            if update_available and parent_window and parent_window.winfo_exists():
-                # Schedule the prompt on the main thread
-                parent_window.after(
-                    1000,
-                    lambda: show_update_prompt(update_manager, parent_window)
-                )
+            # Make sure we don't try to update if the app is shutting down
+            if app_state and hasattr(app_state, 'running') and not app_state.running:
+                logger.info("Application shutting down, cancelling update check")
+                return
+                
+            logger.info("Background update check running")
+            
+            try:
+                # Store a reference to the update manager for later use
+                if app_state:
+                    app_state._update_manager = UpdateManager(app_state)
+                    update_manager = app_state._update_manager
+                    logger.info("Created update manager with app state")
+                else:
+                    update_manager = UpdateManager(app_state)
+                    logger.info("Created update manager without app state")
+                
+                # Check for updates - force update check regardless of last check time
+                logger.info("Checking for updates in background (forcing check)")
+                update_available = update_manager.check_for_updates(force=True)
+                
+                if update_available:
+                    logger.info(f"Update available: {update_manager.latest_version} (current: {update_manager.current_version})")
+                    
+                    # Verify parent window still exists before scheduling
+                    if parent_window:
+                        try:
+                            if parent_window.winfo_exists():
+                                logger.info("Parent window exists, scheduling update prompt")
+                                # Schedule the prompt on the main thread with a small delay
+                                parent_window.after(
+                                    1000,
+                                    lambda: show_update_prompt(update_manager, parent_window)
+                                )
+                                logger.info("Update prompt scheduled for display in 1 second")
+                            else:
+                                logger.warning("Parent window no longer exists, can't show update prompt")
+                        except Exception as e:
+                            logger.error(f"Error checking window existence: {e}")
+                else:
+                    logger.info("No updates available in background check")
+            except Exception as e:
+                logger.error(f"Error in background update check process: {e}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                
+                # Log detailed info about the exception for debugging
+                if hasattr(e, 'response') and e.response:
+                    try:
+                        logger.error(f"HTTP Response Status: {e.response.status_code}")
+                        logger.error(f"HTTP Response Text: {e.response.text[:500]}")  # First 500 chars of response
+                    except:
+                        pass
         except Exception as e:
-            logger.error(f"Error in background update check: {e}")
+            # Catch-all for the entire thread
+            logger.error(f"Unhandled error in background update thread: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             
     def show_update_prompt(update_manager, parent_window):
         """Show the update prompt on the main thread"""
         try:
-            if parent_window and parent_window.winfo_exists():
-                should_update = update_manager.prompt_for_update(parent_window)
+            logger.info("Preparing to show update prompt")
+            
+            # Make sure parent window exists before proceeding
+            if not parent_window:
+                logger.warning("No parent window provided, skipping update prompt")
+                return
                 
-                if should_update:
-                    update_manager.download_and_install_update(parent_window)
+            try:
+                if not parent_window.winfo_exists():
+                    logger.warning("Parent window no longer exists, skipping update prompt")
+                    return
+            except Exception as e:
+                logger.error(f"Error checking window existence: {e}")
+                return
+                
+            # Make sure app is not shutting down
+            if app_state and hasattr(app_state, 'running') and not app_state.running:
+                logger.info("Application shutting down, skipping update prompt")
+                return
+                
+            # Verify we still have update info before showing prompt
+            if not update_manager.update_available or not update_manager.update_info:
+                logger.warning("Update info no longer available, skipping update prompt")
+                return
+                
+            # Show update prompt
+            logger.info("Showing update prompt to user")
+            should_update = update_manager.prompt_for_update(parent_window)
+            
+            if should_update:
+                logger.info("User accepted update, starting standalone update process")
+                # Use standalone updater that will manage its own progress UI
+                update_manager.download_and_install_update(parent_window)
+            else:
+                logger.info("User declined the update")
+                
         except Exception as e:
             logger.error(f"Error showing update prompt: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
     
     # Start the background thread
-    thread = Thread(target=check_in_background, daemon=True)
+    logger.info("Starting background update check thread")
+    thread = Thread(target=check_in_background, name="UpdateCheckThread", daemon=True)
     thread.start()
+    return thread  # Return the thread so caller can keep track if needed
