@@ -218,15 +218,27 @@ class UpdateManager:
             return False
         logger.info("Starting update download and installation")
         self.update_in_progress = True
+
+        if parent_window is None or not parent_window.winfo_exists():
+            print("Invalid parent window provided to show_download_dialog")
+            return False
+            
+        # Ensure the parent is visible while creating the dialog
+        was_withdrawn = parent_window.state() == 'withdrawn'
+        if was_withdrawn:
+            parent_window.deiconify()
+            parent_window.update()
         
         # Start update in a background thread
-        # self.update_thread = Thread(
-        #     target=self._perform_update_process,
-        #     args=(parent_window, show_progress),
-        #     daemon=True
-        # )
-        # self.update_thread.start()
-        self._perform_update_process(parent_window, show_progress)
+        self.update_thread = Thread(
+            target=self._perform_update_process,
+            args=(parent_window, show_progress),
+            daemon=True
+        )
+        self.update_thread.start()
+     
+        
+        # self._perform_update_process(parent_window, show_progress)
         return True
     
     def _perform_update_process(self, parent_window=None, show_progress=True):
@@ -239,12 +251,15 @@ class UpdateManager:
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_installer_path = os.path.join(temp_dir, f"{APP_NAME}_Setup.exe")
                 
+                
                 # Show progress dialog in the main thread if requested
                 if show_progress and parent_window:
                   # Use after to create dialog in main thread
+                  logger.info(f"_create_and_show_progress_dialog called with parent_window")
                   parent_window.after(0, lambda: self._create_and_show_progress_dialog(parent_window, "Downloading update..."))
                   # Give time for the dialog to be created
                   time.sleep(0.5)
+                 
                 
                 # Download the update file
                 try:
