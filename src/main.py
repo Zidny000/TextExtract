@@ -490,6 +490,8 @@ def main():
                     
                     if should_update:
                         # Download and install the update
+                        app_state.floating_icon.destroy()
+                        app_state.tray_icon.stop()
                         update_manager.download_and_install_update(root)
                 else:
                     # No updates available
