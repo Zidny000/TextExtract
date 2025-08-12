@@ -11,7 +11,6 @@ from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
 from database import db_init
 from routes import init_routes
-from scheduler import init_scheduler, scheduler
 
 # Load environment variables from .env file
 load_dotenv()
@@ -143,14 +142,7 @@ def root():
         "version": "1.0.0"
     })
 
-# Initialize the background scheduler for subscription checks and other automated tasks
-try:
-    init_scheduler()
-    # Register a function to shut down the scheduler when the app exits
-    atexit.register(lambda: scheduler.shutdown())
-    logger.info("Background scheduler initialized successfully")
-except Exception as e:
-    logger.error(f"Scheduler initialization error: {str(e)}")
+
 
 if __name__ == '__main__':
     # For development only - use a production WSGI server in production
