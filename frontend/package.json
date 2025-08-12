@@ -70,10 +70,10 @@
   },
   "scripts": {
     "start": "cross-env BROWSER=none react-scripts start",
-    "start:dev": "cross-env BROWSER=none REACT_APP_API_URL=https://textextract-dev.onrender.com react-scripts start",
+    "start:dev": "cross-env BROWSER=none REACT_APP_API_URL=http://localhost:5000 react-scripts start",
     "start:prod": "cross-env BROWSER=none REACT_APP_API_URL=https://textextract.onrender.com react-scripts start",
     "build": "react-scripts build",
-    "build:dev": "cross-env REACT_APP_API_URL=https://textextract-dev.onrender.com react-scripts build",
+    "build:dev": "cross-env REACT_APP_API_URL=http://localhost:5000 react-scripts build",
     "build:prod": "cross-env REACT_APP_API_URL=https://textextract.onrender.com react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",

@@ -593,7 +593,7 @@ const SubscriptionPage = () => {
                         className="btn btn-primary btn-block "
                         target="_blank"
                         href={
-                            plans.stripe_link +
+                            plan.stripe_link +
                             '?prefilled_email=' +
                             user?.email
                         }

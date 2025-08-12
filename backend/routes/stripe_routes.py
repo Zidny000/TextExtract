@@ -93,39 +93,42 @@ def stripe_webhook():
             
             # Extract metadata
             plan_id = session.get('metadata', {}).get('plan_id')
-            
+            user_email = session.get('customer_details', {}).get('email')
             # Get the plan
             plan = SubscriptionPlan.get_by_id(plan_id)
             if not plan:
                 logger.error(f"Plan {plan_id} not found")
                 return jsonify({"error": "Plan not found"}), 404
-            
+           
             # Calculate subscription dates
             subscription_start = datetime.datetime.now().isoformat()
             subscription_end = (datetime.datetime.now() + datetime.timedelta(days=30)).isoformat()
-            
+
+            user = User.get_by_email(user_email)
+        
             # Create or update subscription
             subscription = Subscription.create(
-                user_id=g.user.id,
+                user_id=user['id'],
                 plan_id=plan_id,
                 status="active",
                 start_date=subscription_start,
                 end_date=subscription_end,
                 renewal_date=subscription_end,
             )
+            print(f"Created subscription: {subscription}")
             
             if not subscription:
-                logger.error(f"Failed to create subscription for user {g.user.id}")
+                logger.error(f"Failed to create subscription for user {user['id']} with plan {plan_id}")
                 return jsonify({"error": "Failed to create subscription"}), 500
             
             # Update user record with new plan type
             updated_user = User.update_subscription(
-                g.user.id,
+                user['id'],
                 plan["name"]
             )
             
             if not updated_user:
-                logger.error(f"Failed to update user {g.user.id}")
+                logger.error(f"Failed to update user {user.id} with plan {plan_id}")
                 return jsonify({"error": "Failed to update user record"}), 500
             
             return jsonify({"success": True}), 200
