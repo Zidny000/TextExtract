@@ -19,13 +19,12 @@ try:
     response = (
         supabase.table("users")
         .insert({
-            "email": "anik@gmail.com",
+            "email": "ani@gmail.com",
             "password_hash": "password_hash",
             "full_name": "full_name",
-            "plan_type": "free",
-            "created_at": datetime.datetime.now().isoformat(),
-            "updated_at": datetime.datetime.now().isoformat()
+         
         }).execute()
+
     )
     
     if len(response.data) > 0:
