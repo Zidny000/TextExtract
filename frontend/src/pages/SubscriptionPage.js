@@ -25,21 +25,7 @@ const SubscriptionPage = () => {
   const [activeDialog, setActiveDialog] = useState({ open: false, planId: null, planName: '', price: 0 });
   const [paymentMethod, setPaymentMethod] = useState('paypal');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });  // Initialize payment services on component mount
-  // Stripe Plans >> fill in your own priceId & link
-  const planss = [
-      {
-          link: 'https://buy.stripe.com/test_00wdRabkQ8BC44q4tt1VK00',
-          priceId:'',
-          price: 4.99,
-          duration: '/month'
-      },
-      {
-          link: 'https://buy.stripe.com/test_8x27sM4Ws5pq1Wi8JJ1VK01',
-          priceId:'',
-          price: 9.99,
-          duration: '/year'
-      }
-  ];
+
   useEffect(() => {
     const initPaymentSystems = async () => {
       try {
@@ -607,7 +593,7 @@ const SubscriptionPage = () => {
                         className="btn btn-primary btn-block "
                         target="_blank"
                         href={
-                            planss[0].link +
+                            plans.stripe_link +
                             '?prefilled_email=' +
                             user?.email
                         }

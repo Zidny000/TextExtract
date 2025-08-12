@@ -18,7 +18,7 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app, resources={
     r"/*": {
-        "origins": ["*"], 
+        "origins": ["http://localhost:3000","https://textextract1.onrender.com/"], 
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization", "X-CSRF-TOKEN", "X-Device-ID"],
         "supports_credentials": True,  # Important for cookies/auth
