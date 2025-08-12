@@ -92,32 +92,7 @@ def stripe_webhook():
             session = event['data']['object']
             
             # Extract metadata
-            transaction_id = session.get('metadata', {}).get('transaction_id')
-            
-            if not transaction_id:
-                logger.error(f"No transaction ID found in Stripe webhook: {session.id}")
-                return jsonify({"error": "Missing transaction ID"}), 400
-                
-            # Get the transaction
-            response = supabase.table("payment_transactions").select("*").eq("id", transaction_id).execute()
-            if len(response.data) == 0:
-                logger.error(f"Transaction {transaction_id} not found")
-                return jsonify({"error": "Transaction not found"}), 404
-                
-            transaction = response.data[0]
-            user_id = transaction["user_id"]
-            plan_id = transaction["plan_id"]
-            
-            # Update transaction status
-            updated_transaction = PaymentTransaction.update_status(
-                transaction_id,
-                "completed",
-                transaction_external_id=transaction_id
-            )
-            
-            if not updated_transaction:
-                logger.error(f"Failed to update transaction {transaction_id}")
-                return jsonify({"error": "Failed to update transaction"}), 500
+            plan_id = session.get('metadata', {}).get('plan_id')
             
             # Get the plan
             plan = SubscriptionPlan.get_by_id(plan_id)
@@ -131,27 +106,26 @@ def stripe_webhook():
             
             # Create or update subscription
             subscription = Subscription.create(
-                user_id=user_id,
+                user_id=g.user.id,
                 plan_id=plan_id,
                 status="active",
                 start_date=subscription_start,
                 end_date=subscription_end,
                 renewal_date=subscription_end,
-                external_subscription_id=transaction_id
             )
             
             if not subscription:
-                logger.error(f"Failed to create subscription for user {user_id}")
+                logger.error(f"Failed to create subscription for user {g.user.id}")
                 return jsonify({"error": "Failed to create subscription"}), 500
             
             # Update user record with new plan type
             updated_user = User.update_subscription(
-                user_id,
+                g.user.id,
                 plan["name"]
             )
             
             if not updated_user:
-                logger.error(f"Failed to update user {user_id}")
+                logger.error(f"Failed to update user {g.user.id}")
                 return jsonify({"error": "Failed to update user record"}), 500
             
             return jsonify({"success": True}), 200
@@ -168,38 +142,10 @@ def stripe_webhook():
 def stripe_success():
     """Handle successful Stripe payment"""
     try:
-        session_id = request.args.get('session_id')
-        transaction_id = request.args.get('transaction_id')
-        
-        if not session_id or not transaction_id:
-            return jsonify({"error": "Missing required parameters"}), 400
-        
-        # Retrieve the transaction
-        response = supabase.table("payment_transactions").select("*").eq("id", transaction_id).execute()
-        if len(response.data) == 0:
-            return jsonify({"error": "Transaction not found"}), 404
-            
-        transaction = response.data[0]
-        
-        # Check if transaction is already completed
-        if transaction["status"] == "completed":
-            return jsonify({
-                "success": True,
-                "message": "Payment already processed"
-            }), 200
-        
-        # Update transaction status if not completed by webhook
-        updated_transaction = PaymentTransaction.update_status(
-            transaction_id,
-            "completed",
-            transaction_external_id=transaction_id
-        )
-        
-        if not updated_transaction:
-            return jsonify({"error": "Failed to update transaction"}), 500
-        
+        plan_id = request.args.get('plan_id')
+
         # Get the plan
-        plan = SubscriptionPlan.get_by_id(transaction["plan_id"])
+        plan = SubscriptionPlan.get_by_id(plan_id)
         if not plan:
             return jsonify({"error": "Plan not found"}), 404
         
@@ -207,28 +153,6 @@ def stripe_success():
         subscription_start = datetime.datetime.now().isoformat()
         subscription_end = (datetime.datetime.now() + datetime.timedelta(days=30)).isoformat()
         
-        # Create or update subscription
-        subscription = Subscription.create(
-            user_id=g.user_id,
-            plan_id=plan["id"],
-            status="active",
-            start_date=subscription_start,
-            end_date=subscription_end,
-            renewal_date=subscription_end,
-            external_subscription_id=transaction_id
-        )
-        
-        if not subscription:
-            return jsonify({"error": "Failed to create subscription"}), 500
-        
-        # Update user record with new plan type
-        updated_user = User.update_subscription(
-            g.user_id,
-            plan["name"]
-        )
-        
-        if not updated_user:
-            return jsonify({"error": "Failed to update user record"}), 500
         
         return jsonify({
             "success": True,
