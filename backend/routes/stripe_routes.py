@@ -23,21 +23,15 @@ def create_stripe_checkout():
     """Create a Stripe checkout session for subscription payment"""
     try:
         data = request.json
-        
-        if not data or "transaction_id" not in data:
-            return jsonify({"error": "Transaction ID is required"}), 400
-            
-        transaction_id = data["transaction_id"]
-        
-        # Get the transaction
-        response = supabase.table("payment_transactions").select("*").eq("id", transaction_id).execute()
-        if len(response.data) == 0:
-            return jsonify({"error": "Transaction not found"}), 404
-            
-        transaction = response.data[0]
-        
+
+        if not data or "stripe_price_id" not in data:
+            return jsonify({"error": "Stripe Price ID is required"}), 400
+
+        stripe_price_id = data["stripe_price_id"]
+        plan_id = data["plan_id"]
+
         # Get the plan
-        plan = SubscriptionPlan.get_by_id(transaction["plan_id"])
+        plan = SubscriptionPlan.get_by_id(plan_id)
         if not plan:
             return jsonify({"error": "Plan not found"}), 404
             
@@ -46,21 +40,13 @@ def create_stripe_checkout():
         if not user:
             return jsonify({"error": "User not found"}), 404
             
-        # Update transaction provider to stripe
-        PaymentTransaction.update_status(
-            transaction_id,
-            "pending",
-            payment_provider="stripe"
-        )
-        
+
         # Create checkout session
         checkout_session = create_checkout_session(
             customer_email=user["email"],
             plan_name=plan["name"],
             plan_id=plan["id"],
-            price_amount=float(transaction["amount"]),
-            currency=transaction["currency"].lower(),
-            transaction_id=transaction_id
+            price_id=stripe_price_id
         )
         
         return jsonify({
@@ -115,7 +101,7 @@ def stripe_webhook():
                 end_date=subscription_end,
                 renewal_date=subscription_end,
             )
-            print(f"Created subscription: {subscription}")
+      
             
             if not subscription:
                 logger.error(f"Failed to create subscription for user {user['id']} with plan {plan_id}")
@@ -145,27 +131,10 @@ def stripe_webhook():
 def stripe_success():
     """Handle successful Stripe payment"""
     try:
-        plan_id = request.args.get('plan_id')
-
-        # Get the plan
-        plan = SubscriptionPlan.get_by_id(plan_id)
-        if not plan:
-            return jsonify({"error": "Plan not found"}), 404
-        
-        # Calculate subscription dates
-        subscription_start = datetime.datetime.now().isoformat()
-        subscription_end = (datetime.datetime.now() + datetime.timedelta(days=30)).isoformat()
-        
+       
         
         return jsonify({
             "success": True,
-            "message": f"Successfully upgraded to {plan['name']} plan",
-            "plan": plan,
-            "subscription": {
-                "status": "active",
-                "start_date": subscription_start,
-                "end_date": subscription_end
-            }
         }), 200
         
     except Exception as e:

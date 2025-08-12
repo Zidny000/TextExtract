@@ -30,15 +30,14 @@ const SubscriptionSuccess = () => {
         // Get URL parameters
         const queryParams = new URLSearchParams(location.search);
         const sessionId = queryParams.get('session_id');
-        const transactionId = queryParams.get('transaction_id');
         
-        if (!sessionId || !transactionId) {
+        if (!sessionId) {
           setError('Invalid payment information. Missing required parameters.');
           return;
         }
         
         // Verify the payment with our backend
-        const result = await StripeService.verifyPayment(sessionId, transactionId);
+        const result = await StripeService.verifyPayment(sessionId);
         
         if (result.success) {
           setSuccess(true);

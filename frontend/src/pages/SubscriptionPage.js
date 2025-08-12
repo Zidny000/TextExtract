@@ -22,7 +22,7 @@ const SubscriptionPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [upgradeStatus, setUpgradeStatus] = useState({ loading: false, success: false, error: '' });
-  const [activeDialog, setActiveDialog] = useState({ open: false, planId: null, planName: '', price: 0 });
+  const [activeDialog, setActiveDialog] = useState({ open: false, stripePriceId:'', planId: '', planName: '', price: 0});
   const [paymentMethod, setPaymentMethod] = useState('paypal');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });  // Initialize payment services on component mount
 
@@ -127,7 +127,7 @@ const SubscriptionPage = () => {
     loadData();
   }, [user, axiosAuth.defaults.headers.common]);
 
-  const handleUpgradeClick = (planId, planName, price) => {
+  const handleUpgradeClick = (stripePriceId, planId, planName, price) => {
     // Check if user is logged in before showing the payment dialog
     if (!user) {
       // Redirect to login page with return URL set to subscription page
@@ -136,7 +136,13 @@ const SubscriptionPage = () => {
     }
     
     // If user is logged in, show the payment dialog
-    
+    setActiveDialog({
+      open: true,
+      stripePriceId,
+      planId,
+      planName,
+      price
+    });
   };
 
   const handleDialogClose = () => {
@@ -148,11 +154,11 @@ const SubscriptionPage = () => {
     }
   };
 
-  const handleStripeCheckout = async (upgradeResponse) => {
+  const handleStripeCheckout = async (stripePriceId, planId) => {
     try {
       // Create Stripe checkout session
-      const checkoutResponse = await StripeService.createCheckoutSession(upgradeResponse.transaction_id);
-      
+      const checkoutResponse = await StripeService.createCheckoutSession(stripePriceId, planId);
+
       if (checkoutResponse.success) {
         // Redirect to Stripe checkout
         StripeService.redirectToCheckout(checkoutResponse.checkout_url);
@@ -175,8 +181,6 @@ const SubscriptionPage = () => {
       // Get auto-renewal setting if applicable
       const autoRenewal = userPlan?.usage?.auto_renewal ?? false;
       
-      // Initiate the upgrade process
-      const upgradeResponse = await PayPalService.initiateUpgrade(activeDialog.planId, autoRenewal);
       
       // If it's a free plan, we're done
       if (activeDialog.price === 0) {
@@ -198,15 +202,10 @@ const SubscriptionPage = () => {
       
       // Process payment based on selected payment method
       if (paymentMethod === 'stripe') {
-        await handleStripeCheckout(upgradeResponse);
+        await handleStripeCheckout(activeDialog.stripePriceId, activeDialog.planId);
       } else {
         // For PayPal
-        const paymentResponse = await PayPalService.processPayment(
-          upgradeResponse.transaction_id,
-          upgradeResponse.amount,
-          upgradeResponse.currency
-        );
-        
+     
         // Update status
         setUpgradeStatus({
           loading: false,
@@ -587,20 +586,9 @@ const SubscriptionPage = () => {
                     variant="contained" 
                     endIcon={<ArrowIcon />}
                     disabled={userPlan && userPlan.plan.name === plan.name}
-                    
+                    onClick={() => handleUpgradeClick(plan.stripe_price_id, plan.id, plan.name, plan.price)}
                   >
-                    <a
-                        className="btn btn-primary btn-block "
-                        target="_blank"
-                        href={
-                            plan.stripe_link +
-                            '?prefilled_email=' +
-                            user?.email
-                        }
-                    >
-                      {userPlan && userPlan.plan.name === plan.name ? 'Current Plan' : 'Subscribe'}
-                    </a>
-                    
+                    {userPlan && userPlan.plan.name === plan.name ? 'Current Plan' : 'Subscribe'}
                   </Button>
                 </CardActions>
               </Card>

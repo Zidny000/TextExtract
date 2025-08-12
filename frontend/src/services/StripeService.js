@@ -26,10 +26,11 @@ class StripeService {
   }
 
   // Create a Stripe checkout session for a transaction
-  async createCheckoutSession(transactionId) {
+  async createCheckoutSession(stripePriceId, planId) {
     try {
       const response = await this.axiosInstance.post('/stripe/create-checkout', {
-        transaction_id: transactionId
+        stripe_price_id: stripePriceId,
+        plan_id: planId
       });
       return response.data;
     } catch (error) {
@@ -39,12 +40,11 @@ class StripeService {
   }
 
   // Verify a successful Stripe payment
-  async verifyPayment(sessionId, transactionId) {
+  async verifyPayment(sessionId) {
     try {
       const response = await this.axiosInstance.get(`/stripe/success`, {
         params: {
           session_id: sessionId,
-          transaction_id: transactionId
         }
       });
       return response.data;

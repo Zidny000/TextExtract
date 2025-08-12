@@ -10,7 +10,7 @@ STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
 STRIPE_PUBLIC_KEY = os.environ.get('STRIPE_PUBLIC_KEY')
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
 
-def create_checkout_session(customer_email, plan_name, plan_id, price_amount, currency="usd", transaction_id=None):
+def create_checkout_session(customer_email, plan_name, plan_id, price_id):
     """Create a Stripe checkout session for subscription payment"""
     try:
         # Create or get Stripe customer
@@ -21,29 +21,21 @@ def create_checkout_session(customer_email, plan_name, plan_id, price_amount, cu
             customer = stripe.Customer.create(email=customer_email)
             
         # Create a checkout session
-        success_url = f"{FRONTEND_URL}/subscription/success?session_id={{CHECKOUT_SESSION_ID}}&transaction_id={transaction_id}"
+        success_url = f"{FRONTEND_URL}/subscription/success?session_id={{CHECKOUT_SESSION_ID}}"
         cancel_url = f"{FRONTEND_URL}/subscription/cancel"
         
         checkout_session = stripe.checkout.Session.create(
             customer=customer.id,
             payment_method_types=['card'],
             line_items=[{
-                'price_data': {
-                    'currency': currency,
-                    'product_data': {
-                        'name': f'TextExtract {plan_name} Plan',
-                        'description': f'Subscription to TextExtract {plan_name} Plan'
-                    },
-                    'unit_amount': int(price_amount * 100),  # Stripe uses cents
-                },
+                'price': price_id,
                 'quantity': 1,
             }],
-            mode='payment',
+            mode='subscription',
             success_url=success_url,
             cancel_url=cancel_url,
             metadata={
                 'plan_id': plan_id,
-                'transaction_id': transaction_id
             }
         )
         
