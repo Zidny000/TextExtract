@@ -3,11 +3,12 @@ from flask import Blueprint, request, jsonify, g
 from auth import login_required
 from database.db import supabase
 from database.models import User, SubscriptionPlan, PaymentTransaction, Subscription
-from payment.stripe_client import create_checkout_session, verify_stripe_webhook, STRIPE_PUBLIC_KEY
+from payment.stripe_client import create_checkout_session, verify_stripe_webhook, STRIPE_PUBLIC_KEY, get_subscription_details
 import datetime
 import stripe
 import os
 import uuid
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 stripe_routes = Blueprint('stripe', __name__, url_prefix='/stripe')
@@ -44,7 +45,6 @@ def create_stripe_checkout():
         # Create checkout session
         checkout_session = create_checkout_session(
             customer_email=user["email"],
-            plan_name=plan["name"],
             plan_id=plan["id"],
             price_id=stripe_price_id
         )
@@ -87,8 +87,10 @@ def stripe_webhook():
                 return jsonify({"error": "Plan not found"}), 404
            
             # Calculate subscription dates
-            subscription_start = datetime.datetime.now().isoformat()
-            subscription_end = (datetime.datetime.now() + datetime.timedelta(days=30)).isoformat()
+            subscription = get_subscription_details(session.get('subscription'))
+            print(subscription.get('current_period_start'), subscription.get('current_period_end'))
+            subscription_start = datetime.fromtimestamp(subscription.get('current_period_start'), tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
+            subscription_end = datetime.fromtimestamp(subscription.get('current_period_end'), tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
 
             user = User.get_by_email(user_email)
         
@@ -100,6 +102,7 @@ def stripe_webhook():
                 start_date=subscription_start,
                 end_date=subscription_end,
                 renewal_date=subscription_end,
+                external_subscription_id=session.get('subscription')
             )
       
             
@@ -119,8 +122,14 @@ def stripe_webhook():
             
             return jsonify({"success": True}), 200
         
+        if event['type'] == 'customer.subscription.deleted':
+            session = event['data']['object']
+            print("customer.subscription.deleted",session)
+
         # Return a 200 for other event types we're not handling
         return jsonify({"success": True}), 200
+    
+      
     
     except Exception as e:
         logger.error(f"Error processing Stripe webhook: {str(e)}")

@@ -10,7 +10,7 @@ STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
 STRIPE_PUBLIC_KEY = os.environ.get('STRIPE_PUBLIC_KEY')
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
 
-def create_checkout_session(customer_email, plan_name, plan_id, price_id):
+def create_checkout_session(customer_email, plan_id, price_id):
     """Create a Stripe checkout session for subscription payment"""
     try:
         # Create or get Stripe customer
@@ -44,6 +44,15 @@ def create_checkout_session(customer_email, plan_name, plan_id, price_id):
     except Exception as e:
         logger.error(f"Error creating Stripe checkout session: {str(e)}")
         raise
+    
+def get_subscription_details(sub_id):
+    """Retrieve subscription details from Stripe"""
+    try:
+        subscription = stripe.Subscription.retrieve(sub_id)
+        return subscription
+    except Exception as e:
+        logger.error(f"Error retrieving subscription details: {str(e)}")
+        return None
 
 def verify_stripe_webhook(payload, signature):
     """Verify a Stripe webhook signature"""
