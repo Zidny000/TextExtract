@@ -181,9 +181,13 @@ const SubscriptionPage = () => {
       // Get auto-renewal setting if applicable
       const autoRenewal = userPlan?.usage?.auto_renewal ?? false;
       
-      
+      // Initiate the upgrade process
+     
+
       // If it's a free plan, we're done
       if (activeDialog.price === 0) {
+         // Initiate the upgrade process
+      await StripeService.initiateUpgrade(userPlan.usage.subscription_id, activeDialog.planId, autoRenewal);
         setUpgradeStatus({
           loading: false,
           success: true,
@@ -215,9 +219,6 @@ const SubscriptionPage = () => {
         
         // Close the dialog
         setActiveDialog({ ...activeDialog, open: false });
-        
-        // Reload user plan
-
         
       }
       const userPlanData = await PayPalService.getUserPlan();

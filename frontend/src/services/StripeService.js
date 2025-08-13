@@ -1,3 +1,4 @@
+import { sub } from 'date-fns';
 import { api, API_URL } from './api';
 
 class StripeService {
@@ -123,6 +124,22 @@ class StripeService {
       return response.data;
     } catch (error) {
       console.error('Error verifying payment method update:', error);
+      throw error;
+    }
+  }
+
+  // Initiate a subscription upgrade
+  async initiateUpgrade(subscriptionId, planId, autoRenewal = false) {
+    try {
+      const response = await this.axiosInstance.post('/subscription/upgrade', {
+        subscription_id: subscriptionId,
+        plan_id: planId,
+        auto_renewal: autoRenewal
+      });
+      console.log(response.data)
+      return response.data;
+    } catch (error) {
+      console.error('Error initiating subscription upgrade:', error);
       throw error;
     }
   }

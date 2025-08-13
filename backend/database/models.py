@@ -41,16 +41,27 @@ class User:
             
             if len(response.data) > 0:
                 user = response.data[0]
+
+                # Set defaults if not provided
+                if subscription_start is None:
+                    subscription_start = datetime.datetime.now().isoformat()
+                    
+                if subscription_end is None and plan_type != "free":
+                    # Default to 1 month subscription
+                    end_date = datetime.datetime.now() + datetime.timedelta(days=30)
+                    subscription_end = end_date.isoformat()
                 
                 # Create free subscription entry if successful
                 if plan:
                     Subscription.create(
                         user_id=user["id"],
                         plan_id=plan["id"],
-                        status="active",
-                        start_date=datetime.datetime.now().isoformat()
+                        status="active" if plan_type != "free" else "free_tier",
+                        start_date=subscription_start,
+                        end_date=subscription_end if subscription_end else None,
+                        renewal_date=subscription_end if subscription_end else None,
                     )
-                
+    
                 return user
             return None
             
@@ -266,27 +277,18 @@ class User:
             return False
 
     @staticmethod
-    def update_subscription(user_id, plan_type, subscription_id=None, subscription_start=None, subscription_end=None):
+    def update_subscription(user_id, plan_id, subscription_id=None, subscription_start=None, subscription_end=None):
         """Update user subscription information"""
         try:
             # Get plan details
-            plan = SubscriptionPlan.get_by_name(plan_type)
+            plan = SubscriptionPlan.get_by_id(plan_id)
             if not plan:
-                logger.error(f"Plan type {plan_type} not found")
+                logger.error(f"Plan ID {plan_id} not found")
                 return False
-                
-            # Set defaults if not provided
-            if subscription_start is None:
-                subscription_start = datetime.datetime.now().isoformat()
-                
-            if subscription_end is None and plan_type != "free":
-                # Default to 1 month subscription
-                end_date = datetime.datetime.now() + datetime.timedelta(days=30)
-                subscription_end = end_date.isoformat()
-            
-            # First update the user's plan_type and related fields
+
+            # First update the user's plan_id and related fields
             update_data = {
-                "plan_type": plan_type,
+                "plan_type": plan.get('name'),
                 "max_requests_per_month": plan.get("max_requests_per_month", 20),
                 "device_limit": plan.get("device_limit", 2),
                 "updated_at": datetime.datetime.now().isoformat()
@@ -297,21 +299,8 @@ class User:
             if len(response.data) == 0:
                 logger.error(f"User with ID {user_id} not found")
                 return None
-            
-            # Create or update subscription entry
-            subscription = Subscription.create(
-                user_id=user_id,
-                plan_id=plan["id"],
-                status="active" if plan_type != "free" else "free_tier",
-                start_date=subscription_start,
-                end_date=subscription_end if subscription_end else None,
-                renewal_date=subscription_end if subscription_end else None,
-                external_subscription_id=subscription_id if subscription_id else None
-            )
-            
-            if subscription:
-                return response.data[0]
-            return None
+          
+            return response.data[0]
             
         except Exception as e:
             logger.error(f"Error updating user subscription: {str(e)}")
@@ -544,32 +533,7 @@ class Subscription:
             
             if renewal_date is None and not is_free_plan:
                 renewal_date = end_date
-            
-            # Check if there's an existing active subscription for this user
-            current_sub = Subscription.get_active_subscription(user_id)
-            if current_sub:
-                # If upgrading to the same plan, just extend dates
-                if current_sub["plan_id"] == plan_id and not is_free_plan:
-                    update_data = {
-                        "status": status,
-                        "updated_at": now.isoformat()
-                    }
-                    
-                    if end_date:
-                        update_data["end_date"] = end_date
-                    
-                    if renewal_date:
-                        update_data["renewal_date"] = renewal_date
-                    
-                    if external_subscription_id:
-                        update_data["external_subscription_id"] = external_subscription_id
-                    
-                    response = supabase.table("subscriptions").update(update_data).eq("id", current_sub["id"]).execute()
-                    if len(response.data) > 0:
-                        return response.data[0]
-                else:
-                    # If switching plans, cancel the current subscription
-                    Subscription.cancel_subscription(current_sub["id"])
+
             
             # Create a new subscription
             subscription_data = {
@@ -600,7 +564,54 @@ class Subscription:
         except Exception as e:
             logger.error(f"Error creating subscription: {str(e)}")
             return None
-    
+        
+    @staticmethod
+    def update(subscription_id, user_id, plan_id, status="active", start_date=None, end_date=None, renewal_date=None, external_subscription_id=None, auto_renewal=False):
+        """Update an existing subscription record"""
+        try:
+            if start_date is None:
+                start_date = datetime.datetime.now().isoformat()
+            
+            now = datetime.datetime.now()
+            
+            # For non-free plans, set default end and renewal dates if not provided
+            is_free_plan = False
+            plan = SubscriptionPlan.get_by_id(plan_id)
+            if plan and plan.get("price", 0) == 0:
+                is_free_plan = True
+                
+            if end_date is None and not is_free_plan:
+                # Default to 1 month subscription
+                end_date = (now + datetime.timedelta(days=30)).isoformat()
+            
+            if renewal_date is None and not is_free_plan:
+                renewal_date = end_date
+            if external_subscription_id is None:
+                external_subscription_id = None
+            update_data = {
+                "user_id": user_id,
+                "plan_id": plan_id,
+                "status": status,
+                "start_date": start_date,
+                "auto_renewal": auto_renewal
+            }
+            if end_date:
+                update_data["end_date"] = end_date
+            
+            if renewal_date:
+                update_data["renewal_date"] = renewal_date
+            
+            if external_subscription_id:
+                update_data["external_subscription_id"] = external_subscription_id
+
+            response = supabase.table("subscriptions").update(update_data).eq("id", subscription_id).execute()
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error updating subscription: {str(e)}")
+            return None
+
     @staticmethod
     def get_active_subscription(user_id):
         """Get the active subscription for a user"""

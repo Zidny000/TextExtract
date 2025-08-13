@@ -68,6 +68,7 @@ def get_user_plan():
             "plan": plan,
             "usage": {
                 "status": subscription_status,
+                "subscription_id": subscription.get("id") if subscription else None,
                 "start_date": subscription.get("start_date") if subscription else None,
                 "end_date": subscription.get("end_date") if subscription else None,
                 "renewal_date": subscription.get("renewal_date") if subscription else None,
@@ -96,8 +97,9 @@ def initiate_upgrade():
         
         # Get the plan
         plan_id = data["plan_id"]
+        subscription_id = data["subscription_id"]
         plan = SubscriptionPlan.get_by_id(plan_id)
-        
+
         # Get auto-renewal setting if provided
         auto_renewal = data.get("auto_renewal", False)
         
@@ -105,52 +107,31 @@ def initiate_upgrade():
             return jsonify({"error": f"Plan with ID '{plan_id}' not found"}), 404
         
         # For free plan, just create the subscription directly
-        if plan["price"] == 0:
-            subscription = Subscription.create(
-                user_id=g.user_id,
-                plan_id=plan_id,
-                status="free_tier",
-                start_date=datetime.datetime.now().isoformat()
-            )
-            
-            if subscription:
-                # Update the user record too
-                updated_user = User.update_subscription(
-                    g.user_id, 
-                    plan["name"]
-                )
-                
-                return jsonify({
-                    "success": True,
-                    "message": f"Successfully upgraded to {plan['name']} plan",
-                    "plan": plan,
-                    "subscription": subscription
-                }), 200
-            else:
-                return jsonify({"error": "Failed to update subscription"}), 500
-        
-        # For paid plans, create a payment transaction
-        transaction = PaymentTransaction.create(
+     
+        subscription = Subscription.update(
+            subscription_id,
             user_id=g.user_id,
             plan_id=plan_id,
-            amount=plan["price"],
-            currency=plan["currency"],
-            status="pending",
-            payload={"auto_renewal": auto_renewal}
+            status="free_tier",
+            start_date=datetime.datetime.now().isoformat()
         )
         
-        if not transaction:
-            return jsonify({"error": "Failed to create payment transaction"}), 500
-        
-        # For now, return the transaction ID for the frontend to use with PayPal
-        return jsonify({
-            "success": True,
-            "transaction_id": transaction["id"],
-            "plan": plan,
-            "amount": plan["price"],
-            "currency": plan["currency"]
-        }), 200
-        
+        if subscription:
+            # Update the user record too
+            updated_user = User.update_subscription(
+                g.user_id, 
+                plan["name"]
+            )
+            
+            return jsonify({
+                "success": True,
+                "message": f"Successfully upgraded to {plan['name']} plan",
+                "plan": plan,
+                "subscription": subscription
+            }), 200
+        else:
+            return jsonify({"error": "Failed to update subscription"}), 500
+ 
     except Exception as e:
         logger.error(f"Error initiating subscription upgrade: {str(e)}")
         return jsonify({"error": "Failed to initiate subscription upgrade"}), 500

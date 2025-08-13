@@ -76,36 +76,47 @@ def stripe_webhook():
         # Handle the event based on its type
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
-            
+
             # Extract metadata
             plan_id = session.get('metadata', {}).get('plan_id')
             user_email = session.get('customer_details', {}).get('email')
+
             # Get the plan
             plan = SubscriptionPlan.get_by_id(plan_id)
             if not plan:
                 logger.error(f"Plan {plan_id} not found")
                 return jsonify({"error": "Plan not found"}), 404
-           
+
             # Calculate subscription dates
             subscription = get_subscription_details(session.get('subscription'))
-            print(subscription.get('current_period_start'), subscription.get('current_period_end'))
-            subscription_start = datetime.fromtimestamp(subscription.get('current_period_start'), tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
-            subscription_end = datetime.fromtimestamp(subscription.get('current_period_end'), tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
-
+           
+            subscription_start = datetime.fromtimestamp(subscription['items']['data'][0]['current_period_start'], tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
+            subscription_end = datetime.fromtimestamp(subscription['items']['data'][0]['current_period_end'], tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
+            print("Subscription dates:", subscription_start, subscription_end)
             user = User.get_by_email(user_email)
-        
-            # Create or update subscription
-            subscription = Subscription.create(
-                user_id=user['id'],
-                plan_id=plan_id,
-                status="active",
-                start_date=subscription_start,
-                end_date=subscription_end,
-                renewal_date=subscription_end,
-                external_subscription_id=session.get('subscription')
-            )
+
+            # Get subscription details including plan
+            sub_details = Subscription.get_user_subscription_details(user["id"])
       
-            
+            if not sub_details or not sub_details.get("plan"):
+                return jsonify({"error": "Subscription details not found"}), 404
+                
+            plan = sub_details["plan"]
+            subscription = sub_details["subscription"]
+          
+            if subscription:
+                # Update existing subscription
+                Subscription.update(
+                    subscription_id=subscription["id"],
+                    user_id=user["id"],
+                    plan_id=plan_id,
+                    status="active",
+                    start_date=subscription_start,
+                    end_date=subscription_end,
+                    renewal_date=subscription_end,
+                    external_subscription_id=session.get('subscription')
+                )
+
             if not subscription:
                 logger.error(f"Failed to create subscription for user {user['id']} with plan {plan_id}")
                 return jsonify({"error": "Failed to create subscription"}), 500
@@ -113,7 +124,7 @@ def stripe_webhook():
             # Update user record with new plan type
             updated_user = User.update_subscription(
                 user['id'],
-                plan["name"]
+                plan_id
             )
             
             if not updated_user:
@@ -128,8 +139,6 @@ def stripe_webhook():
 
         # Return a 200 for other event types we're not handling
         return jsonify({"success": True}), 200
-    
-      
     
     except Exception as e:
         logger.error(f"Error processing Stripe webhook: {str(e)}")
