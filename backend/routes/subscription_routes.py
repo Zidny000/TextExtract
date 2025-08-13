@@ -115,13 +115,18 @@ def initiate_upgrade():
             status="free_tier",
             start_date=datetime.datetime.now().isoformat()
         )
+
+
         
         if subscription:
+            print(f"Updated subscription:")
             # Update the user record too
             updated_user = User.update_subscription(
                 g.user_id, 
-                plan["name"]
+                plan["id"]
             )
+
+            print(f"Updated user: {updated_user}")
             
             return jsonify({
                 "success": True,
@@ -197,7 +202,7 @@ def complete_payment():
         # Update user record with new plan type
         updated_user = User.update_subscription(
             g.user_id,
-            plan["name"]
+            plan["id"]
         )
         
         if not updated_user:
@@ -271,7 +276,7 @@ def cancel_subscription():
         # Update user record to free plan
         updated_user = User.update_subscription(
             g.user_id,
-            "free"
+            plan["id"]
         )
         
         if not updated_user:
@@ -387,7 +392,7 @@ def renew_subscription():
                 # Update the user record too
                 updated_user = User.update_subscription(
                     g.user_id, 
-                    plan["name"]
+                    plan["id"]
                 )
                 
                 return jsonify({

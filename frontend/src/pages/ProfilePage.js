@@ -150,6 +150,7 @@ const ProfilePage = () => {
         setError('');
         const response = await axiosAuth.get('/users/profile');
         if (response.data && response.data.usage) {
+          console.log(response.data.usage)
           setUsageStats(response.data.usage);
         } else {
           setError('No usage data available');

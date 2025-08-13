@@ -295,6 +295,8 @@ class User:
             }
             
             response = supabase.table("users").update(update_data).eq("id", user_id).execute()
+
+            print(response.data)
             
             if len(response.data) == 0:
                 logger.error(f"User with ID {user_id} not found")
