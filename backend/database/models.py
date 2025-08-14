@@ -514,6 +514,18 @@ class Subscription:
     """Model for user subscriptions"""
     
     @staticmethod
+    def get_by_id(subscription_id):
+        """Get a subscription by ID"""
+        try:
+            response = supabase.table("subscriptions").select("*").eq("id", subscription_id).execute()
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error getting subscription by ID {subscription_id}: {str(e)}")
+            return None
+
+    @staticmethod
     def create(user_id, plan_id, status="active", start_date=None, end_date=None, renewal_date=None, external_subscription_id=None, auto_renewal=False):
         """Create a new subscription record"""
         try:
@@ -638,11 +650,20 @@ class Subscription:
     def cancel_subscription(subscription_id):
         """Cancel a subscription"""
         try:
-            update_data = {
-                "status": "cancelled",
-                "updated_at": datetime.datetime.now().isoformat()
-            }
             
+
+            plan = SubscriptionPlan.get_by_name("free")
+
+            subscription_start = datetime.datetime.now().isoformat()
+
+            update_data = {
+                "status": "free_tier",
+                "plan_id": plan["id"],
+                "updated_at": datetime.datetime.now().isoformat(),
+                "start_date": subscription_start,
+                "end_date": None,
+            }
+
             response = supabase.table("subscriptions").update(update_data).eq("id", subscription_id).execute()
             
             if len(response.data) > 0:

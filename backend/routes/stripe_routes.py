@@ -3,7 +3,7 @@ from flask import Blueprint, request, jsonify, g
 from auth import login_required
 from database.db import supabase
 from database.models import User, SubscriptionPlan, PaymentTransaction, Subscription
-from payment.stripe_client import create_checkout_session, verify_stripe_webhook, STRIPE_PUBLIC_KEY, get_subscription_details
+from payment.stripe_client import create_checkout_session, verify_stripe_webhook, STRIPE_PUBLIC_KEY, get_subscription_details, cancel_stripe_subscription
 import datetime
 import stripe
 import os
@@ -100,10 +100,16 @@ def stripe_webhook():
       
             if not sub_details or not sub_details.get("plan"):
                 return jsonify({"error": "Subscription details not found"}), 404
+            
                 
             plan = sub_details["plan"]
             subscription = sub_details["subscription"]
-          
+
+            if subscription and subscription.get("status") == "active":
+                stripe_sub_cancelled = cancel_stripe_subscription(subscription["external_subscription_id"])
+                if not stripe_sub_cancelled:
+                    return jsonify({"error": "Failed to cancel Stripe subscription"}), 500
+
             if subscription:
                 # Update existing subscription
                 Subscription.update(
@@ -118,8 +124,8 @@ def stripe_webhook():
                 )
 
             if not subscription:
-                logger.error(f"Failed to create subscription for user {user['id']} with plan {plan_id}")
-                return jsonify({"error": "Failed to create subscription"}), 500
+                logger.error(f"Failed to update subscription for user {user['id']} with plan {plan_id}")
+                return jsonify({"error": "Failed to update subscription"}), 500
             
             # Update user record with new plan type
             updated_user = User.update_subscription(

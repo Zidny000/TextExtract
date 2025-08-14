@@ -36,7 +36,11 @@ def create_checkout_session(customer_email, plan_id, price_id):
             cancel_url=cancel_url,
             metadata={
                 'plan_id': plan_id,
-            }
+            },
+            # automatic_tax={
+            #   'enabled': True
+            # },
+
         )
         
         return checkout_session
@@ -53,6 +57,15 @@ def get_subscription_details(sub_id):
     except Exception as e:
         logger.error(f"Error retrieving subscription details: {str(e)}")
         return None
+    
+def cancel_stripe_subscription(sub_id):
+    """Cancel a subscription in Stripe"""
+    try:
+        stripe.Subscription.cancel(sub_id)
+        return True
+    except Exception as e:
+        logger.error(f"Error canceling subscription: {str(e)}")
+        return False
 
 def verify_stripe_webhook(payload, signature):
     """Verify a Stripe webhook signature"""

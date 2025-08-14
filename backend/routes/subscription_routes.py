@@ -6,6 +6,7 @@ from database.db import supabase
 from database.models import User, SubscriptionPlan, PaymentTransaction, Subscription
 from auth import login_required
 import datetime
+from payment.stripe_client import cancel_stripe_subscription
 
 logger = logging.getLogger(__name__)
 subscription_routes = Blueprint('subscription', __name__, url_prefix='/subscription')
@@ -99,14 +100,17 @@ def initiate_upgrade():
         plan_id = data["plan_id"]
         subscription_id = data["subscription_id"]
         plan = SubscriptionPlan.get_by_id(plan_id)
-
-        # Get auto-renewal setting if provided
-        auto_renewal = data.get("auto_renewal", False)
         
         if not plan:
             return jsonify({"error": f"Plan with ID '{plan_id}' not found"}), 404
         
+        subscription = Subscription.get_by_id(subscription_id)
+
         # For free plan, just create the subscription directly
+        if subscription and subscription.get("status") == "active":
+                stripe_sub_cancelled = cancel_stripe_subscription(subscription["external_subscription_id"])
+                if not stripe_sub_cancelled:
+                    return jsonify({"error": "Failed to upgrade Stripe subscription"}), 500
      
         subscription = Subscription.update(
             subscription_id,
@@ -116,8 +120,6 @@ def initiate_upgrade():
             start_date=datetime.datetime.now().isoformat()
         )
 
-
-        
         if subscription:
             print(f"Updated subscription:")
             # Update the user record too
@@ -259,11 +261,14 @@ def cancel_subscription():
         
         if not subscription or subscription.get("status") == "free_tier":
             return jsonify({"error": "No active paid subscription to cancel"}), 400
-        
+
+        stripe_sub_cancelled = cancel_stripe_subscription(subscription["external_subscription_id"])
+
+        if not stripe_sub_cancelled:
+            return jsonify({"error": "Failed to cancel Stripe subscription"}), 500
+
         # Cancel the subscription
         cancelled_sub = Subscription.cancel_subscription(subscription["id"])
-
-        print(f"Cancelled subscription: {cancelled_sub}")
         
         if not cancelled_sub:
             return jsonify({"error": "Failed to cancel subscription"}), 500
