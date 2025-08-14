@@ -231,44 +231,6 @@ def verify_setup_intent():
             }), 400
             
         # Save the payment method to the database
-        payment_method = stripe.PaymentMethod.retrieve(setup_intent.payment_method)
-        card = payment_method.card
-        
-        # Check if payment method already exists
-        response = supabase.table("payment_methods").select("*").eq("provider_payment_id", payment_method.id).execute()
-        
-        # Set all existing payment methods for this user to not default
-        supabase.table("payment_methods").update({"is_default": False}).eq("user_id", g.user_id).execute()
-        
-        if len(response.data) > 0:
-            # Update existing payment method
-            payment_method_data = {
-                "updated_at": datetime.datetime.now().isoformat(),
-                "card_last4": card.last4,
-                "card_brand": card.brand,
-                "card_exp_month": card.exp_month,
-                "card_exp_year": card.exp_year,
-                "is_default": True
-            }
-            
-            supabase.table("payment_methods").update(payment_method_data).eq("provider_payment_id", payment_method.id).execute()
-        else:
-            # Create new payment method
-            payment_method_data = {
-                "id": str(uuid.uuid4()),
-                "user_id": g.user_id,
-                "provider": "stripe",
-                "provider_payment_id": payment_method.id,
-                "card_last4": card.last4,
-                "card_brand": card.brand,
-                "card_exp_month": card.exp_month,
-                "card_exp_year": card.exp_year,
-                "is_default": True,
-                "created_at": datetime.datetime.now().isoformat(),
-                "updated_at": datetime.datetime.now().isoformat()
-            }
-            
-            supabase.table("payment_methods").insert(payment_method_data).execute()
         
         return jsonify({
             "success": True,

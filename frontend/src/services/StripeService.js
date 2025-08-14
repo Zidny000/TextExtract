@@ -143,6 +143,39 @@ class StripeService {
       throw error;
     }
   }
+
+  // Get all available subscription plans
+  async getPlans() {
+    try {
+      const response = await this.axiosInstance.get('/subscription/plans');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching subscription plans:', error);
+      throw error;
+    }
+  }
+
+  // Get current user plan details
+  async getUserPlan() {
+    try {
+      const response = await this.axiosInstance.get('/subscription/user-plan');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching user plan:', error);
+      throw error;
+    }
+  }
+
+  // Cancel a subscription
+  async cancelSubscription() {
+    try {
+      const response = await this.axiosInstance.post('/subscription/cancel');
+      return response.data;
+    } catch (error) {
+      console.error('Error cancelling subscription:', error);
+      throw error;
+    }
+  }
 }
 
 export default new StripeService();

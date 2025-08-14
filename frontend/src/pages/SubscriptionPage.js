@@ -10,7 +10,7 @@ import {
 import { CheckCircle as CheckIcon, ArrowForward as ArrowIcon,
          CreditCard as CreditCardIcon, Close as CloseIcon } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
-import PayPalService from '../services/PayPalService';
+
 import StripeService from '../services/StripeService';
 
 const SubscriptionPage = () => {
@@ -23,14 +23,12 @@ const SubscriptionPage = () => {
   const [error, setError] = useState('');
   const [upgradeStatus, setUpgradeStatus] = useState({ loading: false, success: false, error: '' });
   const [activeDialog, setActiveDialog] = useState({ open: false, stripePriceId:'', planId: '', planName: '', price: 0});
-  const [paymentMethod, setPaymentMethod] = useState('paypal');
+  const [paymentMethod, setPaymentMethod] = useState('stripe');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });  // Initialize payment services on component mount
 
   useEffect(() => {
     const initPaymentSystems = async () => {
       try {
-        // Initialize PayPal
-        await PayPalService.initialize();
         
         // Set up Stripe
         if (axiosAuth.defaults.headers.common['Authorization']) {
@@ -63,7 +61,7 @@ const SubscriptionPage = () => {
           
           if (verificationResult.success) {
             // Refresh user plan
-            const userPlanData = await PayPalService.getUserPlan();
+            const userPlanData = await StripeService.getUserPlan();
             setUserPlan(userPlanData);
             
             // Show success message
@@ -101,19 +99,17 @@ const SubscriptionPage = () => {
         if (axiosAuth.defaults.headers.common['Authorization']) {
           const token = axiosAuth.defaults.headers.common['Authorization'].split(' ')[1];
           const csrf_token = axiosAuth.defaults.headers.common['X-CSRF-TOKEN']
-          PayPalService.setAuthToken(token);
-          PayPalService.setCsrfToken(csrf_token);
           StripeService.setAuthToken(token);
           StripeService.setCsrfToken(csrf_token);
         }
 
         // Load subscription plans
-        const plansData = await PayPalService.getPlans();
+        const plansData = await StripeService.getPlans();
         setPlans(plansData);
 
         // Load user plan if logged in
         if (user) {
-          const userPlanData = await PayPalService.getUserPlan();
+          const userPlanData = await StripeService.getUserPlan();
           setUserPlan(userPlanData);
         }
       } catch (error) {
@@ -148,6 +144,7 @@ const SubscriptionPage = () => {
   const handleDialogClose = () => {
     setActiveDialog({ ...activeDialog, open: false });
   };
+
   const handlePaymentMethodChange = (event, newValue) => {
     if (newValue !== null) {
       setPaymentMethod(newValue);
@@ -198,30 +195,16 @@ const SubscriptionPage = () => {
         setActiveDialog({ ...activeDialog, open: false });
         
         // Reload user plan
-        const userPlanData = await PayPalService.getUserPlan();
+        const userPlanData = await StripeService.getUserPlan();
         setUserPlan(userPlanData);
         
         return;
       }
       
       // Process payment based on selected payment method
-      if (paymentMethod === 'stripe') {
-        await handleStripeCheckout(activeDialog.stripePriceId, activeDialog.planId);
-      } else {
-        // For PayPal
-     
-        // Update status
-        setUpgradeStatus({
-          loading: false,
-          success: true,
-          error: ''
-        });
-        
-        // Close the dialog
-        setActiveDialog({ ...activeDialog, open: false });
-        
-      }
-      const userPlanData = await PayPalService.getUserPlan();
+      await handleStripeCheckout(activeDialog.stripePriceId, activeDialog.planId);
+
+      const userPlanData = await StripeService.getUserPlan();
       setUserPlan(userPlanData);
       
     } catch (error) {
@@ -238,9 +221,9 @@ const SubscriptionPage = () => {
     if (window.confirm('Are you sure you want to cancel your subscription? You will be downgraded to the free plan.')) {
       try {
         setLoading(true);
-        await PayPalService.cancelSubscription();
+        await StripeService.cancelSubscription();
         // Reload user plan
-        const userPlanData = await PayPalService.getUserPlan();
+        const userPlanData = await StripeService.getUserPlan();
         setUserPlan(userPlanData);
         alert('Subscription cancelled successfully');
       } catch (error) {
@@ -249,38 +232,6 @@ const SubscriptionPage = () => {
       } finally {
         setLoading(false);
       }
-    }
-  };
-
-  const handleToggleAutoRenewal = async () => {
-    try {
-      setLoading(true);
-      const newAutoRenewalState = !userPlan.usage.auto_renewal;
-      
-      // Call backend API to update auto-renewal setting
-      await PayPalService.updateAutoRenewal(newAutoRenewalState);
-      
-      // Reload user plan
-      const userPlanData = await PayPalService.getUserPlan();
-      setUserPlan(userPlanData);
-      
-      // Show success message
-      setSnackbar({
-        open: true, 
-        message: `Auto-renewal has been ${newAutoRenewalState ? 'enabled' : 'disabled'}.`,
-        severity: 'success'
-      });
-      
-    } catch (error) {
-      console.error('Error toggling auto-renewal:', error);
-      setError('Failed to update auto-renewal setting');
-      setSnackbar({
-        open: true, 
-        message: 'Failed to update auto-renewal setting.',
-        severity: 'error'
-      });
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -305,37 +256,15 @@ const SubscriptionPage = () => {
     setUpgradeStatus({ loading: true, success: false, error: '' });
     try {
       // Process payment method update based on selected payment method
-      if (paymentMethod === 'stripe') {
-        // Create a session to update payment method
-        const updateResponse = await StripeService.createPaymentMethodUpdateSession();
-        
-        if (updateResponse.success) {
-          // Redirect to Stripe to update payment method
-          StripeService.redirectToCheckout(updateResponse.checkout_url);
-        } else {
-          throw new Error('Failed to create payment method update session');
-        }
+   
+      // Create a session to update payment method
+      const updateResponse = await StripeService.createPaymentMethodUpdateSession();
+      
+      if (updateResponse.success) {
+        // Redirect to Stripe to update payment method
+        StripeService.redirectToCheckout(updateResponse.checkout_url);
       } else {
-        // For PayPal
-        const updateResponse = await PayPalService.updatePaymentMethod();
-        
-        if (updateResponse.success) {
-          // Close the dialog
-          setActiveDialog({ ...activeDialog, open: false });
-          
-          // Show success message
-          setSnackbar({
-            open: true, 
-            message: 'Payment method updated successfully.',
-            severity: 'success'
-          });
-          
-          // Reload user plan to get updated payment status
-          const userPlanData = await PayPalService.getUserPlan();
-          setUserPlan(userPlanData);
-        } else {
-          throw new Error('Failed to update payment method');
-        }
+        throw new Error('Failed to create payment method update session');
       }
       
       // Reset upgrade status
@@ -517,14 +446,6 @@ const SubscriptionPage = () => {
                 <Button
                   variant="outlined"
                   color="primary"
-                  onClick={handleToggleAutoRenewal}
-                >
-                  {userPlan.usage.auto_renewal ? 'Disable Auto-Renewal' : 'Enable Auto-Renewal'}
-                </Button>
-                
-                <Button
-                  variant="outlined"
-                  color="primary"
                   onClick={handleUpdatePaymentMethod}
                 >
                   Update Payment Method
@@ -606,10 +527,6 @@ const SubscriptionPage = () => {
                 <>
                   Update your payment method for your {userPlan?.plan?.name?.toUpperCase()} subscription.
                 </>
-              ) : activeDialog.price > 0 ? (
-                <>
-                  You are about to {userPlan?.usage?.status === 'expired' ? 'renew' : 'upgrade to'} the {activeDialog.planName.toUpperCase()} plan for ${activeDialog.price.toFixed(2)}/month.
-                </>
               ) : (
                 <>
                   You are about to switch to the {activeDialog.planName.toUpperCase()} plan.
@@ -617,58 +534,6 @@ const SubscriptionPage = () => {
               )}
             </DialogContentText>
             
-            {(activeDialog.price > 0 || activeDialog.isPaymentUpdate) && (
-              <Box sx={{ mt: 3, mb: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>
-                  Select Payment Method:
-                </Typography>
-                <ToggleButtonGroup
-                  value={paymentMethod}
-                  exclusive
-                  onChange={handlePaymentMethodChange}
-                  aria-label="payment method"
-                  sx={{ width: '100%', mt: 1 }}
-                >
-                  <ToggleButton value="paypal" aria-label="PayPal" sx={{ width: '50%' }}>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                      <img 
-                        src="https://www.paypalobjects.com/webstatic/mktg/logo/pp_cc_mark_37x23.jpg" 
-                        alt="PayPal" 
-                        style={{ height: 30, marginBottom: 8 }} 
-                      />
-                      <Typography variant="body2">PayPal</Typography>
-                    </Box>
-                  </ToggleButton>
-                  <ToggleButton value="stripe" aria-label="Credit Card" sx={{ width: '50%' }}>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                      <CreditCardIcon sx={{ fontSize: 30, mb: 1 }} />
-                      <Typography variant="body2">Credit Card</Typography>
-                    </Box>
-                  </ToggleButton>
-                </ToggleButtonGroup>
-                
-                {/* Auto-renewal option checkbox */}
-                {!activeDialog.isPaymentUpdate && userPlan?.plan?.name !== 'free' && (
-                  <Box sx={{ mt: 3, display: 'flex', alignItems: 'center' }}>
-                    <input 
-                      type="checkbox" 
-                      id="auto-renewal" 
-                      checked={userPlan?.usage?.auto_renewal ?? false}
-                      onChange={(e) => {
-                        // Update local state for dialog display
-                        // This will be properly saved when subscription is processed
-                        const newUserPlan = {...userPlan};
-                        newUserPlan.usage.auto_renewal = e.target.checked;
-                        setUserPlan(newUserPlan);
-                      }}
-                    />
-                    <Typography variant="body2" sx={{ ml: 1 }}>
-                      Enable auto-renewal (recommended)
-                    </Typography>
-                  </Box>
-                )}
-              </Box>
-            )}
           </DialogContent>
           <DialogActions>
             <Button onClick={handleDialogClose} disabled={upgradeStatus.loading}>
