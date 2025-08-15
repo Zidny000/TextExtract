@@ -102,7 +102,21 @@ class User:
             }).eq("id", user_id).execute()
         except Exception as e:
             logger.error(f"Error updating last login: {str(e)}")
-    
+
+    @staticmethod
+    def update_credit_requests(user_id, amount):
+        """Update the user's credit requests"""
+        try:
+            user = User.get_by_id(user_id)
+            credit_requests = user.get("credit_requests", 0)
+            user = supabase.table("users").update({
+                "credit_requests": credit_requests + amount
+            }).eq("id", user_id).execute()
+            return user
+        except Exception as e:
+            logger.error(f"Error updating credit requests: {str(e)}")
+            return None
+
     @staticmethod
     def verify_password(user, password):
         """Verify password against stored hash"""

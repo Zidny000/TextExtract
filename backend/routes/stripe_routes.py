@@ -3,7 +3,7 @@ from flask import Blueprint, request, jsonify, g
 from auth import login_required
 from database.db import supabase
 from database.models import User, SubscriptionPlan, PaymentTransaction, Subscription
-from payment.stripe_client import create_checkout_session, verify_stripe_webhook, STRIPE_PUBLIC_KEY, get_subscription_details, cancel_stripe_subscription
+from payment.stripe_client import create_checkout_session, verify_stripe_webhook, STRIPE_PUBLIC_KEY, get_subscription_details, cancel_stripe_subscription, create_buy_credit_checkout_session
 import datetime
 import stripe
 import os
@@ -26,7 +26,7 @@ def create_stripe_checkout():
         data = request.json
 
         if not data or "stripe_price_id" not in data:
-            return jsonify({"error": "Stripe Price ID is required"}), 400
+            return jsonify({"success": False, "error": "Stripe Price ID is required"}), 400
 
         stripe_price_id = data["stripe_price_id"]
         plan_id = data["plan_id"]
@@ -34,13 +34,13 @@ def create_stripe_checkout():
         # Get the plan
         plan = SubscriptionPlan.get_by_id(plan_id)
         if not plan:
-            return jsonify({"error": "Plan not found"}), 404
-            
+            return jsonify({"success": False, "error": "Plan not found"}), 404
+
         # Get the user
         user = User.get_by_id(g.user_id)
         if not user:
-            return jsonify({"error": "User not found"}), 404
-            
+            return jsonify({"success": False, "error": "User not found"}), 404
+
 
         # Create checkout session
         checkout_session = create_checkout_session(
@@ -59,6 +59,48 @@ def create_stripe_checkout():
         logger.error(f"Error creating Stripe checkout: {str(e)}")
         return jsonify({"error": "Failed to create checkout session"}), 500
 
+@stripe_routes.route('/create-buy-credit-checkout', methods=['POST'])
+@login_required
+def create_stripe_buy_credit_checkout():
+    """Create a Stripe checkout session for buying credits"""
+    try:
+        data = request.json
+
+        data["amount"] = int(data["amount"]) if "amount" in data else None
+        data["price"] = float(data["price"]) if "price" in data else None
+
+        if not data["amount"] or not data["price"]:
+            return jsonify({"success": False, "error": "Invalid amount or price"}), 400
+
+        if data["amount"] != 100 and data["amount"] != 200 and data["amount"] != 300:
+            return jsonify({"success": False, "error": "Invalid amount. Allowed values are 100, 200, 300."}), 400
+
+        amount = data["amount"]
+        price = amount == 100 and 2.99 or amount == 200 and 5.99 or amount == 300 and 7.99
+
+        # Get the user
+        user = User.get_by_id(g.user_id)
+        if not user:
+            return jsonify({"success": False, "error": "User not found"}), 404
+
+        # Create checkout session
+        checkout_session = create_buy_credit_checkout_session(
+            customer_email=user["email"],
+            user_id=user["id"],
+            amount=amount,
+            price=price
+        )
+
+        return jsonify({
+            "success": True,
+            "checkout_url": checkout_session.url,
+            "session_id": checkout_session.id
+        })
+
+    except Exception as e:
+        logger.error(f"Error creating Stripe buy credit checkout: {str(e)}")
+        return jsonify({"error": "Failed to create buy credit checkout session"}), 500
+
 @stripe_routes.route('/webhook', methods=['POST'])
 def stripe_webhook():
     """Handle Stripe webhook events"""
@@ -76,69 +118,81 @@ def stripe_webhook():
         # Handle the event based on its type
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
+            if session.get("mode")=="subscription":
+                # Extract metadata
+                plan_id = session.get('metadata', {}).get('plan_id')
+                user_email = session.get('customer_details', {}).get('email')
 
-            # Extract metadata
-            plan_id = session.get('metadata', {}).get('plan_id')
-            user_email = session.get('customer_details', {}).get('email')
+                # Get the plan
+                plan = SubscriptionPlan.get_by_id(plan_id)
+                if not plan:
+                    logger.error(f"Plan {plan_id} not found")
+                    return jsonify({"error": "Plan not found"}), 404
 
-            # Get the plan
-            plan = SubscriptionPlan.get_by_id(plan_id)
-            if not plan:
-                logger.error(f"Plan {plan_id} not found")
-                return jsonify({"error": "Plan not found"}), 404
-
-            # Calculate subscription dates
-            subscription = get_subscription_details(session.get('subscription'))
-           
-            subscription_start = datetime.fromtimestamp(subscription['items']['data'][0]['current_period_start'], tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
-            subscription_end = datetime.fromtimestamp(subscription['items']['data'][0]['current_period_end'], tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
-   
-            user = User.get_by_email(user_email)
-
-            # Get subscription details including plan
-            sub_details = Subscription.get_user_subscription_details(user["id"])
+                # Calculate subscription dates
+                subscription = get_subscription_details(session.get('subscription'))
+              
+                subscription_start = datetime.fromtimestamp(subscription['items']['data'][0]['current_period_start'], tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
+                subscription_end = datetime.fromtimestamp(subscription['items']['data'][0]['current_period_end'], tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
       
-            if not sub_details or not sub_details.get("plan"):
-                return jsonify({"error": "Subscription details not found"}), 404
-            
+                user = User.get_by_email(user_email)
+
+                # Get subscription details including plan
+                sub_details = Subscription.get_user_subscription_details(user["id"])
+          
+                if not sub_details or not sub_details.get("plan"):
+                    return jsonify({"error": "Subscription details not found"}), 404
                 
-            plan = sub_details["plan"]
-            subscription = sub_details["subscription"]
+                    
+                plan = sub_details["plan"]
+                subscription = sub_details["subscription"]
 
-            if subscription and subscription.get("status") == "active":
-                stripe_sub_cancelled = cancel_stripe_subscription(subscription["external_subscription_id"])
-                if not stripe_sub_cancelled:
-                    return jsonify({"error": "Failed to cancel Stripe subscription"}), 500
+                if subscription and subscription.get("status") == "active":
+                    stripe_sub_cancelled = cancel_stripe_subscription(subscription["external_subscription_id"])
+                    if not stripe_sub_cancelled:
+                        return jsonify({"error": "Failed to cancel Stripe subscription"}), 500
 
-            if subscription:
-                # Update existing subscription
-                Subscription.update(
-                    subscription_id=subscription["id"],
-                    user_id=user["id"],
-                    plan_id=plan_id,
-                    status="active",
-                    start_date=subscription_start,
-                    end_date=subscription_end,
-                    renewal_date=subscription_end,
-                    external_subscription_id=session.get('subscription')
+                if subscription:
+                    # Update existing subscription
+                    Subscription.update(
+                        subscription_id=subscription["id"],
+                        user_id=user["id"],
+                        plan_id=plan_id,
+                        status="active",
+                        start_date=subscription_start,
+                        end_date=subscription_end,
+                        renewal_date=subscription_end,
+                        external_subscription_id=session.get('subscription')
+                    )
+
+                if not subscription:
+                    logger.error(f"Failed to update subscription for user {user['id']} with plan {plan_id}")
+                    return jsonify({"error": "Failed to update subscription"}), 500
+                
+                # Update user record with new plan type
+                updated_user = User.update_subscription(
+                    user['id'],
+                    plan_id
                 )
+                
+                if not updated_user:
+                    logger.error(f"Failed to update user {user.id} with plan {plan_id}")
+                    return jsonify({"error": "Failed to update user record"}), 500
+                
+                return jsonify({"success": True}), 200
+            if session.get("mode")=="payment":
+                user_id = session.get('metadata', {}).get('user_id')
+                amount = session.get('metadata', {}).get('amount')
+                amount = int(amount) if amount else 0
 
-            if not subscription:
-                logger.error(f"Failed to update subscription for user {user['id']} with plan {plan_id}")
-                return jsonify({"error": "Failed to update subscription"}), 500
+                user = User.update_credit_requests(user_id, amount)
+
+                if not user:
+                    logger.error(f"Failed to update credit requests for user {user_id}")
+                    return jsonify({"error": "Failed to update credit requests"}), 500
+
+                return jsonify({"success": True}), 200
             
-            # Update user record with new plan type
-            updated_user = User.update_subscription(
-                user['id'],
-                plan_id
-            )
-            
-            if not updated_user:
-                logger.error(f"Failed to update user {user.id} with plan {plan_id}")
-                return jsonify({"error": "Failed to update user record"}), 500
-            
-            return jsonify({"success": True}), 200
-        
         if event['type'] == 'customer.subscription.deleted' :
             session = event['data']['object']
             print("customer.subscription.deleted",session)

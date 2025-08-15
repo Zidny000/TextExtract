@@ -23,7 +23,6 @@ const SubscriptionPage = () => {
   const [error, setError] = useState('');
   const [upgradeStatus, setUpgradeStatus] = useState({ loading: false, success: false, error: '' });
   const [activeDialog, setActiveDialog] = useState({ open: false, stripePriceId:'', planId: '', planName: '', price: 0});
-  const [paymentMethod, setPaymentMethod] = useState('stripe');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [ocrCredits, setOcrCredits] = useState({
     amount: '100',
@@ -147,12 +146,6 @@ const SubscriptionPage = () => {
 
   const handleDialogClose = () => {
     setActiveDialog({ ...activeDialog, open: false });
-  };
-
-  const handlePaymentMethodChange = (event, newValue) => {
-    if (newValue !== null) {
-      setPaymentMethod(newValue);
-    }
   };
 
   const handleStripeCheckout = async (stripePriceId, planId) => {
@@ -287,6 +280,40 @@ const SubscriptionPage = () => {
     }
   };
 
+  const buyCreditRequest = async () => {
+    try{
+      // Check if user is logged in
+      if (!user) {
+        navigate('/login', { state: { from: '/subscription' } });
+        return;
+      }
+      setUpgradeStatus({ loading: true, success: false, error: '' });
+
+      // Create Stripe checkout session
+      const checkoutResponse = await StripeService.buyCredit(ocrCredits.amount, ocrCredits.price);
+
+      if (checkoutResponse.success) {
+        // Redirect to Stripe checkout
+        StripeService.redirectToCheckout(checkoutResponse.checkout_url);
+      } else {
+        throw new Error('Failed to create Stripe checkout session');
+      }
+      // Reset upgrade status
+      setUpgradeStatus({
+        loading: false,
+        success: true,
+        error: ''
+      });
+    } catch (error) {
+      console.error('Error buying OCR credits:', error);
+      setUpgradeStatus({
+        loading: false,
+        success: false,
+        error: 'Failed to purchase OCR credits. Please try again.'
+      });
+    }
+  };
+
   if (loading) {
     return (
       <Container maxWidth="md">
@@ -398,8 +425,8 @@ const SubscriptionPage = () => {
                   </ListItem>
                   <ListItem>
                     <ListItemText 
-                      primary="Device Usage" 
-                      secondary={`${userPlan.usage.device_count} / ${userPlan.usage.device_limit}`} 
+                      primary="Credit OCR Requests" 
+                      secondary={`${userPlan.usage.credit_requests}`} 
                     />
                   </ListItem>
                   {userPlan.usage.renewal_date && (
@@ -566,20 +593,7 @@ const SubscriptionPage = () => {
                 mt: { xs: 2, md: 0 },
                 width: { xs: '100%', md: 'auto' } 
               }}
-              onClick={() => {
-                // Check if user is logged in
-                if (!user) {
-                  navigate('/login', { state: { from: '/subscription' } });
-                  return;
-                }
-                
-                // For now, just show a notification that this feature is coming soon
-                setSnackbar({
-                  open: true,
-                  message: `You've selected to purchase ${ocrCredits.amount} OCR credits for $${ocrCredits.price.toFixed(2)}`,
-                  severity: 'info'
-                });
-              }}
+              onClick={buyCreditRequest}
             >
               Buy Now
             </Button>

@@ -73,7 +73,8 @@ def get_user_plan():
                 "max_requests": max_requests,
                 "remaining_requests": max_requests - month_count,
                 "device_count": device_count,
-                "device_limit": device_limit
+                "device_limit": device_limit,
+                "credit_requests" : user.get("credit_requests", 0)
             }
         }), 200
     except Exception as e:

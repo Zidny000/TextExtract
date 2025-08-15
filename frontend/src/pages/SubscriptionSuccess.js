@@ -97,7 +97,7 @@ const SubscriptionSuccess = () => {
                 Payment Successful!
               </Typography>
               <Typography variant="body1" paragraph>
-                Thank you for your subscription. Your account has been upgraded successfully.
+                Thank you for your purchase. Your account has been upgraded successfully.
               </Typography>
               <Button 
                 variant="contained" 

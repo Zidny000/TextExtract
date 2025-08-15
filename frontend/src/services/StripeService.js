@@ -136,7 +136,6 @@ class StripeService {
         plan_id: planId,
         auto_renewal: autoRenewal
       });
-      console.log(response.data)
       return response.data;
     } catch (error) {
       console.error('Error initiating subscription upgrade:', error);
@@ -175,6 +174,24 @@ class StripeService {
       console.error('Error cancelling subscription:', error);
       throw error;
     }
+  }
+
+  // Buy OCR credits
+  async buyCredit(amount, price) {
+    try {
+      if (!amount || !price) {
+        throw new Error('Amount and price are required to buy credits');
+      }
+      const response = await this.axiosInstance.post('/stripe/create-buy-credit-checkout', {
+        amount,
+        price
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error validating credit purchase:', error);
+      throw error;
+    }
+    
   }
 }
 

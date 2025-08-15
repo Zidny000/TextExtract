@@ -48,7 +48,54 @@ def create_checkout_session(customer_email, plan_id, price_id):
     except Exception as e:
         logger.error(f"Error creating Stripe checkout session: {str(e)}")
         raise
-    
+
+def create_buy_credit_checkout_session(customer_email, user_id, amount, price):
+    """Create a Stripe checkout session for buying credits"""
+    try:
+        # Create or get Stripe customer
+        customers = stripe.Customer.list(email=customer_email, limit=1)
+        if customers.data:
+            customer = customers.data[0]
+        else:
+            customer = stripe.Customer.create(email=customer_email)
+            
+        # Create a checkout session
+        success_url = f"{FRONTEND_URL}/subscription/success?session_id={{CHECKOUT_SESSION_ID}}"
+        cancel_url = f"{FRONTEND_URL}/subscription/cancel"
+        
+        checkout_session = stripe.checkout.Session.create(
+            customer=customer.id,
+            payment_method_types=['card'],
+            line_items=[{
+                'price_data': {
+                    'currency': "usd",
+                    'product_data': {
+                        'name': f'TextExtract {amount} OCR Requests',
+                        'description': f'Purchase {amount} TextExtract OCR Requests'
+                    },
+                    'unit_amount': int(price * 100),  # Stripe uses cents
+                },
+                'quantity': 1,
+            }],
+            mode='payment',
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={
+                'user_id': user_id,
+                'amount': amount,
+            },
+            # automatic_tax={
+            #   'enabled': True
+            # },
+
+        )
+        
+        return checkout_session
+        
+    except Exception as e:
+        logger.error(f"Error creating Stripe checkout session: {str(e)}")
+        raise
+
 def get_subscription_details(sub_id):
     """Retrieve subscription details from Stripe"""
     try:
