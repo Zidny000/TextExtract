@@ -92,7 +92,7 @@ def stripe_webhook():
            
             subscription_start = datetime.fromtimestamp(subscription['items']['data'][0]['current_period_start'], tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
             subscription_end = datetime.fromtimestamp(subscription['items']['data'][0]['current_period_end'], tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
-            print("Subscription dates:", subscription_start, subscription_end)
+   
             user = User.get_by_email(user_email)
 
             # Get subscription details including plan
@@ -139,9 +139,22 @@ def stripe_webhook():
             
             return jsonify({"success": True}), 200
         
-        if event['type'] == 'customer.subscription.deleted':
+        if event['type'] == 'customer.subscription.deleted' :
             session = event['data']['object']
             print("customer.subscription.deleted",session)
+        if event['type'] == 'checkout.session.async_payment_failed' or event['type'] == 'checkout.session.expired' or event['type'] == 'payment_intent.payment_failed':
+            session = event['data']['object']
+            user_email = session.get('customer_details', {}).get('email')
+            user = User.get_by_email(user_email)
+
+            # Get subscription details including plan
+            sub_details = Subscription.get_user_subscription_details(user["id"])
+      
+            if not sub_details:
+                return jsonify({"error": "Subscription details not found"}), 404
+
+            subscription = sub_details["subscription"]
+            Subscription.update_status(subscription['id'],'payment_failed')
 
         # Return a 200 for other event types we're not handling
         return jsonify({"success": True}), 200

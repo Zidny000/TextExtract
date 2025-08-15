@@ -38,20 +38,15 @@ def get_user_plan():
         
         # Calculate subscription status
         subscription_status = "active"
-        in_grace_period = False
         
         if not subscription:
             subscription_status = "free" if plan["name"] == "free" else "inactive"
-        elif subscription.get("status") == "cancelled":
-            subscription_status = "cancelled"
         elif subscription.get("status") == "payment_failed":
             subscription_status = "payment_failed"
         elif subscription.get("end_date"):
             end_date = datetime.datetime.fromisoformat(subscription["end_date"].replace("Z", "+00:00"))
             if end_date < datetime.datetime.now(datetime.timezone.utc):
                 subscription_status = "expired"
-                # Check if in grace period
-                in_grace_period = Subscription.is_in_grace_period(subscription)
         
         # Get usage statistics
         today = datetime.date.today()
@@ -73,8 +68,6 @@ def get_user_plan():
                 "start_date": subscription.get("start_date") if subscription else None,
                 "end_date": subscription.get("end_date") if subscription else None,
                 "renewal_date": subscription.get("renewal_date") if subscription else None,
-                "auto_renewal": subscription.get("auto_renewal", False) if subscription else False,
-                "in_grace_period": in_grace_period,
                 "current_month": month_name,
                 "month_requests": month_count,
                 "max_requests": max_requests,

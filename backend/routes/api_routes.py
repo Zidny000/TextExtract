@@ -55,22 +55,14 @@ def ocr_proxy():
         if subscription and subscription.get("end_date"):
             end_date = datetime.datetime.fromisoformat(subscription["end_date"].replace("Z", "+00:00"))
             if end_date < datetime.datetime.now(datetime.timezone.utc):
-                # Check if in grace period
-                in_grace_period = Subscription.is_in_grace_period(subscription)
-                
-                if in_grace_period:
-                    # Warn about expiration but allow request during grace period
-                    # We'll continue processing the request, just add a warning header
-                    logger.info(f"User {g.user_id} is in grace period, processing request with warning")
-                else:
-                    # Not in grace period, block the request
-                    return jsonify({
-                        "error": "Subscription expired",
-                        "details": "Your subscription has expired. Please renew your subscription to continue using the service.",
-                        "subscription_status": "expired",
-                        "renewal_url": "/subscription",
-                        "auto_renewal": subscription.get("auto_renewal", False)
-                    }), 402  # 402 Payment Required
+             
+              return jsonify({
+                  "error": "Subscription expired",
+                  "details": "Your subscription has expired. Please renew your subscription to continue using the service.",
+                  "subscription_status": "expired",
+                  "renewal_url": "/subscription",
+                  "auto_renewal": subscription.get("auto_renewal", False)
+              }), 402  # 402 Payment Required
         
         # Check if subscription is cancelled
         if subscription and subscription.get("status") == "cancelled":

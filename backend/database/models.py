@@ -728,41 +728,6 @@ class Subscription:
             return None
         
     @staticmethod
-    def check_renewal(subscription_id):
-        """
-        Check if a subscription should be renewed. Returns True if renewal was successful,
-        False if renewal failed or wasn't needed.
-        """
-        try:
-            # Get subscription
-            response = supabase.table("subscriptions").select("*").eq("id", subscription_id).execute()
-            if len(response.data) == 0:
-                logger.error(f"Subscription {subscription_id} not found")
-                return False
-                
-            subscription = response.data[0]
-            
-            # Check if subscription has auto-renewal enabled
-            if not subscription.get("auto_renewal", False):
-                return False
-                
-            # Check if subscription needs renewal (1 day before expiry to ensure no service interruption)
-            if not subscription.get("renewal_date"):
-                return False
-                
-            renewal_date = datetime.datetime.fromisoformat(subscription["renewal_date"].replace("Z", "+00:00"))
-            now = datetime.datetime.now(datetime.timezone.utc)
-            
-            # If renewal date is within 24 hours, try to renew
-            if (renewal_date - now).total_seconds() <= 86400:  # 24 hours in seconds
-                return Subscription.process_auto_renewal(subscription)
-                
-            return False
-        except Exception as e:
-            logger.error(f"Error checking subscription renewal: {str(e)}")
-            return False
-    
-    @staticmethod
     def process_auto_renewal(subscription):
         """
         Process auto-renewal for a subscription using stored payment method.
@@ -865,59 +830,7 @@ class Subscription:
         except Exception as e:
             logger.error(f"Error getting user payment method: {str(e)}")
             return None
-    
-    @staticmethod
-    def send_renewal_success_notification(user_id, subscription_id):
-        """Send notification about successful subscription renewal"""
-        try:
-            # In a real implementation, this would send an email
-            # For now, just log it
-            logger.info(f"Subscription {subscription_id} renewed successfully for user {user_id}")
-            
-            # TODO: Implement actual email notification
-        except Exception as e:
-            logger.error(f"Error sending renewal success notification: {str(e)}")
-    
-    @staticmethod
-    def send_renewal_failure_notification(user_id, subscription_id):
-        """Send notification about failed subscription renewal"""
-        try:
-            # In a real implementation, this would send an email
-            # For now, just log it
-            logger.error(f"Subscription {subscription_id} renewal failed for user {user_id}")
-            
-            # TODO: Implement actual email notification
-        except Exception as e:
-            logger.error(f"Error sending renewal failure notification: {str(e)}")
-    
-    @staticmethod
-    def is_in_grace_period(subscription):
-        """
-        Check if a subscription is in grace period after expiration.
-        Returns True if in grace period, False otherwise.
-        """
-        try:
-            # If subscription is not expired or not in payment_failed status, there's no grace period
-            if subscription.get("status") not in ["expired", "payment_failed"]:
-                return False
-                
-            # Check if there's an end date
-            if not subscription.get("end_date"):
-                return False
-                
-            # Parse the end date
-            end_date = datetime.datetime.fromisoformat(subscription["end_date"].replace("Z", "+00:00"))
-            now = datetime.datetime.now(datetime.timezone.utc)
-            
-            # Grace period is 7 days after expiration
-            grace_period_end = end_date + datetime.timedelta(days=3)
-            
-            # Check if current time is within grace period
-            return now <= grace_period_end
-        except Exception as e:
-            logger.error(f"Error checking grace period: {str(e)}")
-            return False
-        
+
 
 class SubscriptionPlan:
     """Model for subscription plans"""
