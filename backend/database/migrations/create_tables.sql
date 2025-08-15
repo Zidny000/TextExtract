@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
     status VARCHAR(50) DEFAULT 'active',
     plan_type VARCHAR(50) DEFAULT 'free',
     max_requests_per_month INTEGER DEFAULT 20,
+    credit_requests INTEGER DEFAULT 0,
     email_verified BOOLEAN DEFAULT FALSE,
     device_limit INTEGER DEFAULT 2
 );
@@ -184,5 +185,6 @@ CREATE POLICY user_reviews_policy ON user_reviews
 INSERT INTO subscription_plans (name, description, price, currency, max_requests_per_month, device_limit, interval)
 VALUES 
 ('free', 'Free tier with 20 OCR requests per month', 0.00, 'USD', 20, 2, 'month'),
-('basic', 'Basic tier with 200 OCR requests per month', 9.99, 'USD', 200, 5, 'month')
+('basic', 'Basic tier with 200 OCR requests per month', 4.99, 'USD', 200, 5, 'month'),
+('advance', 'Advance tier with 500 OCR requests per month', 9.99, 'USD', 500, 10, 'month')
 ON CONFLICT DO NOTHING;

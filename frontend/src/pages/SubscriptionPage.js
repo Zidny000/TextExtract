@@ -24,7 +24,11 @@ const SubscriptionPage = () => {
   const [upgradeStatus, setUpgradeStatus] = useState({ loading: false, success: false, error: '' });
   const [activeDialog, setActiveDialog] = useState({ open: false, stripePriceId:'', planId: '', planName: '', price: 0});
   const [paymentMethod, setPaymentMethod] = useState('stripe');
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });  // Initialize payment services on component mount
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [ocrCredits, setOcrCredits] = useState({
+    amount: '100',
+    price: 2.99
+  });  // Initialize payment services on component mount
 
   useEffect(() => {
     const initPaymentSystems = async () => {
@@ -360,7 +364,7 @@ const SubscriptionPage = () => {
                       <CheckIcon color="primary" />
                     </ListItemIcon>
                     <ListItemText 
-                      primary={`$${userPlan.plan.price.toFixed(2)}/${userPlan.plan.interval}`} 
+                      primary={`$${userPlan.plan.price.toFixed(2)}/month`} 
                     />
                   </ListItem>
                 </List>
@@ -382,11 +386,6 @@ const SubscriptionPage = () => {
                                  userPlan.usage.status === 'cancelled' ? 'warning.main' : 'text.primary'
                         }}>
                           {userPlan.usage.status.toUpperCase()}
-                          {userPlan.usage.in_grace_period && (
-                            <Typography variant="caption" color="warning.main" sx={{ ml: 1, fontWeight: 'bold' }}>
-                              (GRACE PERIOD)
-                            </Typography>
-                          )}
                         </Box>
                       } 
                     />
@@ -408,14 +407,6 @@ const SubscriptionPage = () => {
                       <ListItemText 
                         primary="Next Renewal" 
                         secondary={new Date(userPlan.usage.renewal_date).toLocaleDateString()} 
-                      />
-                    </ListItem>
-                  )}
-                  {userPlan.usage.status !== 'free' && (
-                    <ListItem>
-                      <ListItemText 
-                        primary="Auto-Renewal" 
-                        secondary={userPlan.usage.auto_renewal ? 'Enabled' : 'Disabled'} 
                       />
                     </ListItem>
                   )}
@@ -459,9 +450,9 @@ const SubscriptionPage = () => {
           Available Plans
         </Typography>
 
-        <Grid container spacing={3}>
+        <Grid container spacing={3} sx={{ flexWrap: 'nowrap', overflowX: { xs: 'auto', md: 'visible' } }}>
           {plans.map((plan) => (
-            <Grid item xs={12} md={6} key={plan.id}>
+            <Grid item xs={12} sm={6} md={4} lg={3} key={plan.id} sx={{ minWidth: { xs: '90%', sm: 'auto' } }}>
               <Card 
                 elevation={3}
                 sx={{
@@ -480,7 +471,7 @@ const SubscriptionPage = () => {
                   <Typography variant="h4" color="primary" gutterBottom>
                     ${plan.price.toFixed(2)}
                     <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                      /{plan.interval}
+                      / month
                     </Typography>
                   </Typography>
                   <Typography variant="body2" color="text.secondary" paragraph>
@@ -506,7 +497,7 @@ const SubscriptionPage = () => {
                   <Button 
                     fullWidth 
                     variant="contained" 
-                    endIcon={<ArrowIcon />}
+                    endIcon={ userPlan && userPlan.plan.name === plan.name ? null : <ArrowIcon />}
                     disabled={userPlan && userPlan.plan.name === plan.name}
                     onClick={() => handleUpgradeClick(plan.stripe_price_id, plan.id, plan.name, plan.price)}
                   >
@@ -516,7 +507,86 @@ const SubscriptionPage = () => {
               </Card>
             </Grid>
           ))}
-        </Grid>        {/* Upgrade Confirmation Dialog */}
+        </Grid>
+        
+        {/* Credit OCR Requests Box */}
+        <Typography variant="h5" gutterBottom sx={{ mt: 4 }}>
+          Credit OCR Requests
+        </Typography>
+        <Paper elevation={3} sx={{ p: 3, mb: 4 }}>
+          <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ mb: { xs: 2, md: 0 }, width: { xs: '100%', md: 'auto' } }}>
+              <Typography variant="h6" gutterBottom>
+                Purchase Additional OCR Credits
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Need more OCR requests? Purchase additional credits anytime.
+              </Typography>
+              
+              {/* OCR Credit Packages Dropdown */}
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Box sx={{ minWidth: 120, mr: 2 }}>
+                  <select 
+                    className="MuiSelect-root"
+                    style={{ 
+                      padding: '10px', 
+                      borderRadius: '4px', 
+                      border: '1px solid #ccc',
+                      width: '100%',
+                      backgroundColor: 'transparent'
+                    }}
+                    value={ocrCredits.amount}
+                    onChange={(e) => {
+                      const amount = e.target.value;
+                      let price = 2.99;
+                      
+                      if (amount === '200') price = 5.99;
+                      else if (amount === '300') price = 7.99;
+                      
+                      setOcrCredits({ amount, price });
+                    }}
+                  >
+                    <option value="100">100 OCR Requests</option>
+                    <option value="200">200 OCR Requests</option>
+                    <option value="300">300 OCR Requests</option>
+                  </select>
+                </Box>
+                <Typography variant="h5" color="primary">
+                  ${ocrCredits.price.toFixed(2)}
+                </Typography>
+              </Box>
+            </Box>
+            
+            <Button 
+              variant="contained" 
+              color="primary" 
+              size="large"
+              endIcon={<CreditCardIcon />}
+              sx={{ 
+                mt: { xs: 2, md: 0 },
+                width: { xs: '100%', md: 'auto' } 
+              }}
+              onClick={() => {
+                // Check if user is logged in
+                if (!user) {
+                  navigate('/login', { state: { from: '/subscription' } });
+                  return;
+                }
+                
+                // For now, just show a notification that this feature is coming soon
+                setSnackbar({
+                  open: true,
+                  message: `You've selected to purchase ${ocrCredits.amount} OCR credits for $${ocrCredits.price.toFixed(2)}`,
+                  severity: 'info'
+                });
+              }}
+            >
+              Buy Now
+            </Button>
+          </Box>
+        </Paper>
+        
+        {/* Upgrade Confirmation Dialog */}
         <Dialog open={activeDialog.open} onClose={handleDialogClose} maxWidth="sm" fullWidth>
           <DialogTitle>
             {activeDialog.isPaymentUpdate ? 'Update Payment Method' : `Upgrade to ${activeDialog.planName.toUpperCase()}`}

@@ -128,9 +128,9 @@ class User:
             
             # Get the last day by finding the first day of next month and subtracting one day
             if month == 12:
-                last_day = datetime.date(year + 1, 1, 1) - datetime.timedelta(days=1)
+                last_day = datetime.date(year + 1, 1, 1)
             else:
-                last_day = datetime.date(year, month + 1, 1) - datetime.timedelta(days=1)
+                last_day = datetime.date(year, month + 1, 1)
             
             # Query the database for the sum of requests in the date range
             response = supabase.table("usage_stats") \
@@ -193,7 +193,7 @@ class User:
                     period_start = datetime.date(today.year - 1, 12, start_day)
                 else:
                     period_start = datetime.date(today.year, today.month - 1, start_day)
-                period_end = datetime.date(today.year, today.month, start_day) - datetime.timedelta(days=1)
+                period_end = datetime.date(today.year, today.month, start_day)
             else:
                 # Period is from start_day of current month to day before start_day of next month
                 period_start = datetime.date(today.year, today.month, start_day)
@@ -201,7 +201,7 @@ class User:
                     next_month_date = datetime.date(today.year + 1, 1, start_day)
                 else:
                     next_month_date = datetime.date(today.year, today.month + 1, start_day)
-                period_end = next_month_date - datetime.timedelta(days=1)
+                period_end = next_month_date
             
             # Handle edge cases for months with different numbers of days
             # If the start_day is beyond the last day of a month, use the last day of that month
@@ -256,24 +256,46 @@ class User:
                 if subscription.get("end_date"):
                     end_date = datetime.datetime.fromisoformat(subscription["end_date"].replace("Z", "+00:00"))
                     if end_date < datetime.datetime.now(datetime.timezone.utc):
-                        # Check if in grace period
-                        if Subscription.is_in_grace_period(subscription):
-                            # Allow requests during grace period
-                            logger.info(f"User {user_id} is in grace period, allowing request")
-                        else:
-                            # Subscription expired and not in grace period
-                            return False
+                        return False
             
             # Get max requests allowed per month
             max_requests = user.get("max_requests_per_month", 20)
+            credit_requests = user.get("credit_requests")
             
             # Get current request count for the subscription period instead of calendar month
             current_count = User.get_subscription_period_request_count(user_id, sub_details)
             
-            # Check if user is within limits
-            return current_count < max_requests
+            if current_count < max_requests:
+                return True
+            elif credit_requests > 0:
+                # Allow one-time request using credit
+                return User.decrement_credit_requests(user_id)
+            else:
+                # No more credits available
+                return False
+               
         except Exception as e:
             logger.error(f"Error checking if user can make request: {str(e)}")
+            return False
+        
+    @staticmethod
+    def decrement_credit_requests(user_id):
+        """Decrement the user's credit requests by 1"""
+        try:
+            user = User.get_by_id(user_id)
+            if not user:
+                return False
+
+            credit_requests = user.get("credit_requests", 0)
+            if credit_requests > 0:
+                credit_requests = credit_requests - 1
+                supabase.table("users").update({
+                  "credit_requests": credit_requests
+                }).eq("id", user_id).execute()
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error decrementing credit requests: {str(e)}")
             return False
 
     @staticmethod

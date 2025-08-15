@@ -30,7 +30,8 @@ def get_profile():
             "usage": {
                 "monthly_requests": today_count,
                 "remaining_requests": user.get("max_requests_per_month", 20) - today_count,
-                "plan_limit": user.get("max_requests_per_month", 20)
+                "plan_limit": user.get("max_requests_per_month", 20),
+                "credit_requests": user.get("credit_requests", 0)
             },
             "devices": devices
         }), 200

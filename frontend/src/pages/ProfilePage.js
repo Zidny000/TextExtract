@@ -292,7 +292,7 @@ const ProfilePage = () => {
                 <div className="space-y-6">
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm font-medium text-slate-700">API Requests</span>
+                      <span className="text-sm font-medium text-slate-700">OCR Requests</span>
                       <span className="text-sm text-slate-500">
                         {usageStats.monthly_requests} / {usageStats.plan_limit}
                       </span>
@@ -313,7 +313,19 @@ const ProfilePage = () => {
                       <p className="text-2xl font-bold text-green-800">{usageStats.remaining_requests}</p>
                     </div>
                   </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    
+                    <div className="p-4 bg-gradient-to-r from-purple-50 to-purple-100 rounded-lg">
+                      <p className="text-sm text-purple-600 font-medium">Credit OCR Requests</p>
+                      <p className="text-2xl font-bold text-purple-800">{usageStats.credit_requests}</p>
+                    </div>
+                  </div>
+
+                  
+                  
                 </div>
+                
               ) : (
                 <Alert variant="destructive">
                   <XCircle className="h-4 w-4" />
