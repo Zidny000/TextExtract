@@ -3,7 +3,7 @@ import json
 import uuid
 from flask import Blueprint, request, jsonify, g
 from database.db import supabase
-from database.models import User, SubscriptionPlan, PaymentTransaction, Subscription
+from database.models import User, SubscriptionPlan, Subscription
 from auth import login_required
 import datetime
 from payment.stripe_client import cancel_stripe_subscription
@@ -53,10 +53,6 @@ def get_user_plan():
         month_count = User.get_subscription_period_request_count(user["id"])
         max_requests = user.get("max_requests_per_month", 20)
         
-        # Get device usage
-        device_count = User.get_device_count(user["id"])
-        device_limit = user.get("device_limit", 2)
-        
         # Format month string for display
         month_name = today.strftime("%B")
         
@@ -72,8 +68,6 @@ def get_user_plan():
                 "month_requests": month_count,
                 "max_requests": max_requests,
                 "remaining_requests": max_requests - month_count,
-                "device_count": device_count,
-                "device_limit": device_limit,
                 "credit_requests" : user.get("credit_requests", 0)
             }
         }), 200

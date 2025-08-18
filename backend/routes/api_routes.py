@@ -4,9 +4,9 @@ import logging
 import json
 import datetime
 from flask import Blueprint, request, jsonify, g
-from database.models import User, ApiRequest, Device, Subscription
+from database.models import User, ApiRequest, Subscription
 from database.db import supabase
-from auth import login_required, extract_device_info
+from auth import login_required
 from together import Together
 
 logger = logging.getLogger(__name__)
@@ -38,14 +38,6 @@ def ocr_proxy():
         
         # Get language if provided
         language = data.get('language', 'en')
-        
-        # Extract device info for tracking
-        device_info = extract_device_info(request)
-        device_id = request.headers.get("X-Device-ID")
-        
-        # Register or update device if ID is provided
-        if device_id:
-            Device.register(g.user_id, device_id, device_info)
         
         # Get subscription details to check status
         sub_details = Subscription.get_user_subscription_details(g.user_id)
@@ -95,7 +87,6 @@ def ocr_proxy():
             request_type="ocr",
             ip_address=request.remote_addr,
             user_agent=request.headers.get("User-Agent"),
-            device_info=device_info
         )
         
         # Log the request (without the image data for privacy)

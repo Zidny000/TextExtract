@@ -21,11 +21,9 @@ class User:
             # Get plan details
             plan = SubscriptionPlan.get_by_name(plan_type)
             max_requests = 20  # Default free tier value
-            device_limit = 2   # Default free tier value
             
             if plan:
                 max_requests = plan.get("max_requests_per_month", 20)
-                device_limit = plan.get("device_limit", 2)
               # Create user in Supabase
             response = supabase.table("users").insert({
                 "email": email,
@@ -33,7 +31,6 @@ class User:
                 "full_name": full_name,
                 "plan_type": plan_type,
                 "max_requests_per_month": max_requests,
-                "device_limit": device_limit,
                 "email_verified": True,  # User is verified when created
                 "created_at": datetime.datetime.now().isoformat(),
                 "updated_at": datetime.datetime.now().isoformat()
@@ -324,7 +321,6 @@ class User:
             update_data = {
                 "plan_type": plan.get('name'),
                 "max_requests_per_month": plan.get("max_requests_per_month", 20),
-                "device_limit": plan.get("device_limit", 2),
                 "updated_at": datetime.datetime.now().isoformat()
             }
             
@@ -341,49 +337,16 @@ class User:
         except Exception as e:
             logger.error(f"Error updating user subscription: {str(e)}")
             return None
-    
-    @staticmethod
-    def get_device_count(user_id):
-        """Get the number of devices registered for a user"""
-        try:
-            response = supabase.table("devices").select("id", count="exact").eq("user_id", user_id).eq("status", "active").execute()
-            return response.count
-        except Exception as e:
-            logger.error(f"Error getting device count: {str(e)}")
-            return 0
-
-    @staticmethod
-    def can_register_device(user_id):
-        """Check if user can register a new device based on their plan limits"""
-        try:
-            # Get user and their plan
-            user = User.get_by_id(user_id)
-            if not user:
-                return False
-            
-            # Get device limit
-            device_limit = user.get("device_limit", 2)
-            
-            # Get current device count
-            device_count = User.get_device_count(user_id)
-            
-            # Check if user is within limits
-            return device_count < device_limit
-        except Exception as e:
-            logger.error(f"Error checking if user can register device: {str(e)}")
-            return False
 
 
 class ApiRequest:
     """Model for tracking API requests"""
     
     @staticmethod
-    def create(user_id, request_type, ip_address=None, user_agent=None, device_info=None):
+    def create(user_id, request_type, ip_address=None, user_agent=None):
         """Create a new API request record"""
         try:
-            # Convert device_info to JSON if it's a dictionary
-            if isinstance(device_info, dict):
-                device_info = json.dumps(device_info)
+           
             
             request_data = {
                 "user_id": user_id,
@@ -392,7 +355,6 @@ class ApiRequest:
                 "status": "pending",
                 "ip_address": ip_address,
                 "user_agent": user_agent,
-                "device_info": device_info
             }
             
             response = supabase.table("api_requests").insert(request_data).execute()
@@ -461,87 +423,6 @@ class ApiRequest:
                 }).execute()
         except Exception as e:
             logger.error(f"Error updating usage stats: {str(e)}")
-
-
-class Device:
-    """Model for tracking user devices"""
-    
-    @staticmethod
-    def register(user_id, device_identifier, device_info=None):
-        """Register a device for a user"""
-        try:
-            # Check if device already exists
-            response = supabase.table("devices").select("*").eq("user_id", user_id).eq("device_identifier", device_identifier).execute()
-            
-            if len(response.data) > 0:
-                # Update existing device
-                device_id = response.data[0]["id"]
-                
-                update_data = {
-                    "last_active": datetime.datetime.now().isoformat()
-                }
-                
-                # Update device info if provided
-                if device_info:
-                    if "device_name" in device_info:
-                        update_data["device_name"] = device_info["device_name"]
-                    if "device_type" in device_info:
-                        update_data["device_type"] = device_info["device_type"]
-                    if "os_name" in device_info:
-                        update_data["os_name"] = device_info["os_name"]
-                    if "os_version" in device_info:
-                        update_data["os_version"] = device_info["os_version"]
-                    if "app_version" in device_info:
-                        update_data["app_version"] = device_info["app_version"]
-                
-                supabase.table("devices").update(update_data).eq("id", device_id).execute()
-                return device_id
-            else:
-                # Check if user can register a new device
-                if not User.can_register_device(user_id):
-                    logger.warning(f"User {user_id} attempted to register a new device but has reached their device limit")
-                    return None
-                
-                # Create new device
-                device_data = {
-                    "user_id": user_id,
-                    "device_identifier": device_identifier,
-                    "created_at": datetime.datetime.now().isoformat(),
-                    "last_active": datetime.datetime.now().isoformat(),
-                    "status": "active"
-                }
-                
-                # Add device info if provided
-                if device_info:
-                    if "device_name" in device_info:
-                        device_data["device_name"] = device_info["device_name"]
-                    if "device_type" in device_info:
-                        device_data["device_type"] = device_info["device_type"]
-                    if "os_name" in device_info:
-                        device_data["os_name"] = device_info["os_name"]
-                    if "os_version" in device_info:
-                        device_data["os_version"] = device_info["os_version"]
-                    if "app_version" in device_info:
-                        device_data["app_version"] = device_info["app_version"]
-                
-                response = supabase.table("devices").insert(device_data).execute()
-                
-                if len(response.data) > 0:
-                    return response.data[0]["id"]
-                return None
-        except Exception as e:
-            logger.error(f"Error registering device: {str(e)}")
-            return None
-    
-    @staticmethod
-    def get_user_devices(user_id):
-        """Get all devices for a user"""
-        try:
-            response = supabase.table("devices").select("*").eq("user_id", user_id).execute()
-            return response.data
-        except Exception as e:
-            logger.error(f"Error getting user devices: {str(e)}")
-            return [] 
 
 
 class Subscription:
@@ -904,75 +785,6 @@ class SubscriptionPlan:
             return None
 
 
-class PaymentTransaction:
-    """Model for payment transactions"""
-    
-    @staticmethod
-    def create(user_id, plan_id, amount, currency="USD", payment_provider="paypal", transaction_id=None, status="pending", payload=None):
-        """Create a new payment transaction"""
-        try:
-            transaction_data = {
-                "user_id": user_id,
-                "plan_id": plan_id,
-                "amount": amount,
-                "currency": currency,
-                "payment_provider": payment_provider,
-                "status": status,
-                "created_at": datetime.datetime.now().isoformat(),
-                "updated_at": datetime.datetime.now().isoformat()
-            }
-            
-            if transaction_id:
-                transaction_data["transaction_id"] = transaction_id
-                
-            if payload:
-                if isinstance(payload, dict):
-                    transaction_data["payload"] = payload
-                else:
-                    transaction_data["payload"] = json.loads(payload)
-            
-            response = supabase.table("payment_transactions").insert(transaction_data).execute()
-            
-            if len(response.data) > 0:
-                return response.data[0]
-            return None
-        except Exception as e:
-            logger.error(f"Error creating payment transaction: {str(e)}")
-            return None
-    @staticmethod
-    def update_status(transaction_id, status, transaction_external_id=None, payment_provider=None):
-        """Update status of a payment transaction"""
-        try:
-            update_data = {
-                "status": status,
-                "updated_at": datetime.datetime.now().isoformat()
-            }
-            
-            if transaction_external_id:
-                update_data["transaction_id"] = transaction_external_id
-                
-            if payment_provider:
-                update_data["payment_provider"] = payment_provider
-                
-            response = supabase.table("payment_transactions").update(update_data).eq("id", transaction_id).execute()
-            
-            if len(response.data) > 0:
-                return response.data[0]
-            return None
-        except Exception as e:
-            logger.error(f"Error updating payment transaction: {str(e)}")
-            return None
-    @staticmethod
-    def get_user_transactions(user_id, limit=10, offset=0):
-        """Get user's payment transactions"""
-        try:
-            response = supabase.table("payment_transactions").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit).offset(offset).execute()
-            return response.data
-        except Exception as e:
-            logger.error(f"Error getting user payment transactions: {str(e)}")
-            return []
-            
-            
 class UserReview:
     """User Review model for managing user feedback"""
     

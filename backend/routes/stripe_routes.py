@@ -2,7 +2,7 @@ import logging
 from flask import Blueprint, request, jsonify, g
 from auth import login_required
 from database.db import supabase
-from database.models import User, SubscriptionPlan, PaymentTransaction, Subscription
+from database.models import User, SubscriptionPlan, Subscription
 from payment.stripe_client import create_checkout_session, verify_stripe_webhook, STRIPE_PUBLIC_KEY, get_subscription_details, cancel_stripe_subscription, create_buy_credit_checkout_session
 import datetime
 import stripe
