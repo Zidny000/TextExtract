@@ -283,15 +283,18 @@ const SubscriptionPage = () => {
 
   const buyCreditRequest = async () => {
     try{
+      const amount = ocrCredits.amount;
+      const price = ocrCredits.price;
       // Check if user is logged in
-      if (!user) {
+      if (!authUser) {
         navigate('/login', { state: { from: '/subscription' } });
         return;
       }
+      console.log(amount,price)
       setUpgradeStatus({ loading: true, success: false, error: '' });
 
       // Create Stripe checkout session
-      const checkoutResponse = await StripeService.buyCredit(ocrCredits.amount, ocrCredits.price);
+      const checkoutResponse = await StripeService.buyCredit(amount, price);
 
       if (checkoutResponse.success) {
         // Redirect to Stripe checkout

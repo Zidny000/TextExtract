@@ -34,6 +34,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Set httpx logger to WARNING level to suppress INFO logs
+logging.getLogger('httpx').setLevel(logging.WARNING)
+
 # Setup rate limiting
 limiter = Limiter(
     get_remote_address,

@@ -65,7 +65,6 @@ def create_stripe_buy_credit_checkout():
     """Create a Stripe checkout session for buying credits"""
     try:
         data = request.json
-
         data["amount"] = int(data["amount"]) if "amount" in data else None
         data["price"] = float(data["price"]) if "price" in data else None
 
@@ -180,18 +179,16 @@ def stripe_webhook():
                     return jsonify({"error": "Failed to update user record"}), 500
                 
                 return jsonify({"success": True}), 200
-            if session.get("mode")=="payment":
-                user_id = session.get('metadata', {}).get('user_id')
-                amount = session.get('metadata', {}).get('amount')
-                amount = int(amount) if amount else 0
+            # if session.get("mode")=="payment":
+            #     user_id = session.get('metadata', {}).get('user_id')
+               
+            #     user = User.get_by_id(user_id)
 
-                user = User.update_credit_requests(user_id, amount)
+            #     if not user:
+            #         logger.error(f"Failed to update credit requests for user {user_id}")
+            #         return jsonify({"error": "Failed to update credit requests"}), 500
 
-                if not user:
-                    logger.error(f"Failed to update credit requests for user {user_id}")
-                    return jsonify({"error": "Failed to update credit requests"}), 500
-
-                return jsonify({"success": True}), 200
+            #     return jsonify({"success": True}), 200
             
         if event['type'] == 'customer.subscription.deleted' :
             session = event['data']['object']
