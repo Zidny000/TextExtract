@@ -106,8 +106,6 @@ def stripe_webhook():
     try:
         payload = request.data
         signature = request.headers.get('Stripe-Signature')
-
-        print(f"Received Stripe webhook with signature: {signature}")
         
         event = verify_stripe_webhook(payload, signature)
         
@@ -179,20 +177,47 @@ def stripe_webhook():
                     return jsonify({"error": "Failed to update user record"}), 500
                 
                 return jsonify({"success": True}), 200
-            # if session.get("mode")=="payment":
-            #     user_id = session.get('metadata', {}).get('user_id')
+            if session.get("mode")=="payment":
+                user_id = session.get('metadata', {}).get('user_id')
                
-            #     user = User.get_by_id(user_id)
+                user = User.get_by_id(user_id)
+                amount = session.get('metadata', {}).get('amount')
+                amount = int(amount) if amount else 0
+                user = User.update_credit_requests(user_id, amount)
 
-            #     if not user:
-            #         logger.error(f"Failed to update credit requests for user {user_id}")
-            #         return jsonify({"error": "Failed to update credit requests"}), 500
+                if not user:
+                    logger.error(f"Failed to update credit requests for user {user_id}")
+                    return jsonify({"error": "Failed to update credit requests"}), 500
 
-            #     return jsonify({"success": True}), 200
+                return jsonify({"success": True}), 200
             
+        if event['type'] == 'customer.subscription.updated':
+            session = event['data']['object']
+            
+            stripe_sub_id = session.get('id')
+            subscription_start = datetime.fromtimestamp(session.get("current_period_start"), tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
+            subscription_end = datetime.fromtimestamp(session.get("current_period_end"), tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
+
+
+            # Update existing subscription
+            subscription = Subscription.renew_subscription(
+                start_date=subscription_start,
+                end_date=subscription_end,
+                renewal_date=subscription_end,
+                external_subscription_id=stripe_sub_id
+            )
+
+            if not subscription:
+                logger.error(f"Failed to renew subscription for user {user['id']} with plan {plan_id}")
+                return jsonify({"error": "Failed to renew subscription"}), 500
+            
+            return jsonify({"success": True}), 200
+
+
+
         if event['type'] == 'customer.subscription.deleted' :
             session = event['data']['object']
-            print("customer.subscription.deleted",session)
+ 
         if event['type'] == 'checkout.session.async_payment_failed' or event['type'] == 'checkout.session.expired' or event['type'] == 'payment_intent.payment_failed':
             session = event['data']['object']
             user_email = session.get('customer_details', {}).get('email')

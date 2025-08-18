@@ -99,21 +99,18 @@ class User:
             logger.error(f"Error updating last login: {str(e)}")
 
     @staticmethod
-    # def update_credit_requests(user_id, amount):
-    #     """Update the user's credit requests"""
-    #     try:
-    #         user = User.get_by_id(user_id)
-    #         credit_requests = user.get("credit_requests", 0)
-    #         new_credit_amount = credit_requests + amount
-    #         print(f"Updating user {user_id} credit requests from {credit_requests} to {new_credit_amount}")
-    #         supabase.table("users").update({
-    #             "credit_requests": new_credit_amount
-    #         }).eq("id", user_id).execute()
-
-    #         return user
-    #     except Exception as e:
-    #         logger.error(f"Error updating credit requests: {str(e)}")
-    #         return None
+    def update_credit_requests(user_id, amount):
+        """Update the user's credit requests"""
+        try:
+            user = User.get_by_id(user_id)
+            credit_requests = user.get("credit_requests", 0)
+            user = supabase.table("users").update({
+                "credit_requests": credit_requests + amount
+            }).eq("id", user_id).execute()
+            return user
+        except Exception as e:
+            logger.error(f"Error updating credit requests: {str(e)}")
+            return None
 
     @staticmethod
     def verify_password(user, password):
@@ -537,6 +534,33 @@ class Subscription:
                 update_data["external_subscription_id"] = external_subscription_id
 
             response = supabase.table("subscriptions").update(update_data).eq("id", subscription_id).execute()
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error updating subscription: {str(e)}")
+            return None
+        
+    @staticmethod
+    def renew_subscription(start_date=None, end_date=None, renewal_date=None, external_subscription_id=None, auto_renewal=False):
+        """Update an existing subscription record"""
+        try:
+
+            if start_date is None or end_date is None or external_subscription_id is None:
+                logger.error("Missing required fields for subscription update")
+                return None
+
+            update_data = {}
+            if start_date:
+                update_data["start_date"] = start_date
+
+            if end_date:
+                update_data["end_date"] = end_date
+            
+            if renewal_date:
+                update_data["renewal_date"] = renewal_date
+
+            response = supabase.table("subscriptions").update(update_data).eq("external_subscription_id", external_subscription_id).execute()
             if len(response.data) > 0:
                 return response.data[0]
             return None
