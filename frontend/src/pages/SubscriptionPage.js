@@ -14,7 +14,8 @@ import { useAuth } from '../context/AuthContext';
 import StripeService from '../services/StripeService';
 
 const SubscriptionPage = () => {
-  const { user, axiosAuth } = useAuth();
+  const { authUser, axiosAuth } = useAuth();
+  const [user, setUser] = useState(authUser);
   const navigate = useNavigate();
   const location = useLocation();
   const [plans, setPlans] = useState([]);
@@ -91,7 +92,7 @@ const SubscriptionPage = () => {
       
       verifyStripePayment();
     }
-  }, [location.search, user]);
+  }, [location.search, authUser]);
   // Load subscription plans and user plan
   useEffect(() => {
     const loadData = async () => {
@@ -111,7 +112,7 @@ const SubscriptionPage = () => {
         setPlans(plansData);
 
         // Load user plan if logged in
-        if (user) {
+        if (authUser) {
           const userPlanData = await StripeService.getUserPlan();
           setUserPlan(userPlanData);
         }
@@ -124,7 +125,7 @@ const SubscriptionPage = () => {
     };
 
     loadData();
-  }, [user, axiosAuth.defaults.headers.common]);
+  }, [authUser, axiosAuth.defaults.headers.common]);
 
   const handleUpgradeClick = (stripePriceId, planId, planName, price) => {
     // Check if user is logged in before showing the payment dialog
@@ -383,14 +384,6 @@ const SubscriptionPage = () => {
                       <CheckIcon color="primary" />
                     </ListItemIcon>
                     <ListItemText 
-                      primary={`${userPlan.plan.device_limit} devices allowed`} 
-                    />
-                  </ListItem>
-                  <ListItem>
-                    <ListItemIcon>
-                      <CheckIcon color="primary" />
-                    </ListItemIcon>
-                    <ListItemText 
                       primary={`$${userPlan.plan.price.toFixed(2)}/month`} 
                     />
                   </ListItem>
@@ -473,69 +466,6 @@ const SubscriptionPage = () => {
           </Paper>
         )}
 
-        <Typography variant="h5" gutterBottom sx={{ mt: 4 }}>
-          Available Plans
-        </Typography>
-
-        <Grid container spacing={3} sx={{ flexWrap: 'nowrap', overflowX: { xs: 'auto', md: 'visible' } }}>
-          {plans.map((plan) => (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={plan.id} sx={{ minWidth: { xs: '90%', sm: 'auto' } }}>
-              <Card 
-                elevation={3}
-                sx={{
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  borderColor: userPlan && userPlan.plan.name === plan.name ? 'primary.main' : 'transparent',
-                  borderWidth: userPlan && userPlan.plan.name === plan.name ? 2 : 0,
-                  borderStyle: 'solid'
-                }}
-              >
-                <CardContent sx={{ flexGrow: 1 }}>
-                  <Typography variant="h5" component="div" gutterBottom>
-                    {plan.name.toUpperCase()}
-                  </Typography>
-                  <Typography variant="h4" color="primary" gutterBottom>
-                    ${plan.price.toFixed(2)}
-                    <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                      / month
-                    </Typography>
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" paragraph>
-                    {plan.description}
-                  </Typography>
-                  <Divider sx={{ my: 2 }} />
-                  <List dense>
-                    <ListItem>
-                      <ListItemIcon>
-                        <CheckIcon color="primary" />
-                      </ListItemIcon>
-                      <ListItemText primary={`${plan.max_requests_per_month} OCR requests per month`} />
-                    </ListItem>
-                    <ListItem>
-                      <ListItemIcon>
-                        <CheckIcon color="primary" />
-                      </ListItemIcon>
-                      <ListItemText primary={`${plan.device_limit} devices allowed`} />
-                    </ListItem>
-                  </List>
-                </CardContent>
-                <CardActions>
-                  <Button 
-                    fullWidth 
-                    variant="contained" 
-                    endIcon={ userPlan && userPlan.plan.name === plan.name ? null : <ArrowIcon />}
-                    disabled={userPlan && userPlan.plan.name === plan.name}
-                    onClick={() => handleUpgradeClick(plan.stripe_price_id, plan.id, plan.name, plan.price)}
-                  >
-                    {userPlan && userPlan.plan.name === plan.name ? 'Current Plan' : 'Subscribe'}
-                  </Button>
-                </CardActions>
-              </Card>
-            </Grid>
-          ))}
-        </Grid>
-        
         {/* Credit OCR Requests Box */}
         <Typography variant="h5" gutterBottom sx={{ mt: 4 }}>
           Credit OCR Requests
@@ -599,6 +529,65 @@ const SubscriptionPage = () => {
             </Button>
           </Box>
         </Paper>
+
+        <Typography variant="h5" gutterBottom sx={{ mt: 4 }}>
+          Available Plans
+        </Typography>
+
+        <Grid container spacing={3} sx={{ flexWrap: 'nowrap', overflowX: { xs: 'auto', md: 'visible' } }}>
+          {plans.map((plan) => (
+            <Grid item xs={12} sm={6} md={4} lg={3} key={plan.id} sx={{ minWidth: { xs: '90%', sm: 'auto' } }}>
+              <Card 
+                elevation={3}
+                sx={{
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  borderColor: userPlan && userPlan.plan.name === plan.name ? 'primary.main' : 'transparent',
+                  borderWidth: userPlan && userPlan.plan.name === plan.name ? 2 : 0,
+                  borderStyle: 'solid'
+                }}
+              >
+                <CardContent sx={{ flexGrow: 1 }}>
+                  <Typography variant="h5" component="div" gutterBottom>
+                    {plan.name.toUpperCase()}
+                  </Typography>
+                  <Typography variant="h4" color="primary" gutterBottom>
+                    ${plan.price.toFixed(2)}
+                    <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                      / month
+                    </Typography>
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" paragraph>
+                    {plan.description}
+                  </Typography>
+                  <Divider sx={{ my: 2 }} />
+                  <List dense>
+                    <ListItem>
+                      <ListItemIcon>
+                        <CheckIcon color="primary" />
+                      </ListItemIcon>
+                      <ListItemText primary={`${plan.max_requests_per_month} OCR requests per month`} />
+                    </ListItem>
+                  </List>
+                </CardContent>
+                <CardActions>
+                  <Button 
+                    fullWidth 
+                    variant="contained" 
+                    endIcon={ userPlan && userPlan.plan.name === plan.name ? null : <ArrowIcon />}
+                    disabled={userPlan && userPlan.plan.name === plan.name}
+                    onClick={() => handleUpgradeClick(plan.stripe_price_id, plan.id, plan.name, plan.price)}
+                  >
+                    {userPlan && userPlan.plan.name === plan.name ? 'Current Plan' : 'Subscribe'}
+                  </Button>
+                </CardActions>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+        
+        
         
         {/* Upgrade Confirmation Dialog */}
         <Dialog open={activeDialog.open} onClose={handleDialogClose} maxWidth="sm" fullWidth>

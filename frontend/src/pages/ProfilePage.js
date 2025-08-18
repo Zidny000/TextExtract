@@ -137,7 +137,8 @@ const ReviewForm = ({ axiosAuth }) => {
 };
 
 const ProfilePage = () => {
-  const { user, logout, axiosAuth } = useAuth();
+  const { authUser, logout, axiosAuth } = useAuth();
+  const [user, setUser] = useState(authUser);
   const navigate = useNavigate();
   const [message, setMessage] = useState('');
   const [usageStats, setUsageStats] = useState(null);
@@ -150,7 +151,7 @@ const ProfilePage = () => {
         setError('');
         const response = await axiosAuth.get('/users/profile');
         if (response.data && response.data.usage) {
-          console.log(response.data.usage)
+          setUser(response.data.user);
           setUsageStats(response.data.usage);
         } else {
           setError('No usage data available');
@@ -166,7 +167,7 @@ const ProfilePage = () => {
     if (user) {
       fetchUsageStats();
     }
-  }, [user, axiosAuth]);
+  }, [authUser, axiosAuth]);
 
   const handleLogout = () => {
     logout();

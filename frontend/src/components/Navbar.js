@@ -16,7 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { AccountCircle } from '@mui/icons-material';
 
 const Navbar = () => {
-  const { user, isAuthenticated } = useAuth();
+  const { authUser, isAuthenticated } = useAuth();
   const [anchorEl, setAnchorEl] = React.useState(null);
   
   const handleMenu = (event) => {
@@ -52,9 +52,9 @@ const Navbar = () => {
                 onClick={handleMenu}
                 color="inherit"
               >
-                {user?.full_name ? (
+                {authUser?.full_name ? (
                   <Avatar sx={{ width: 32, height: 32, bgcolor: 'secondary.main' }}>
-                    {user.full_name.charAt(0).toUpperCase()}
+                    {authUser.full_name.charAt(0).toUpperCase()}
                   </Avatar>
                 ) : (
                   <AccountCircle />

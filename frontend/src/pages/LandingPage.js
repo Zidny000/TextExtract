@@ -18,7 +18,7 @@ import {
 
 const LandingPage = () => {
 
-  const { user } = useAuth();
+  const { authUser } = useAuth();
 
   const features = [
     {
@@ -67,10 +67,8 @@ const LandingPage = () => {
           </h1>
           
           <p className="text-xl lg:text-2xl text-slate-600 mb-8 max-w-2xl mx-auto leading-relaxed">
-            Extract text from your screen with ease. Powered by AI for instant, accurate results.
+            Extract text from any video or screen with ease.
           </p>
-
-         
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12">
 
@@ -88,7 +86,7 @@ const LandingPage = () => {
               </Button>           
             </a>
 
-            {!user && (
+            {!authUser && (
               <RouterLink to="/login">
                 <Button
                   variant="outline"
@@ -113,7 +111,10 @@ const LandingPage = () => {
       <div className="container mx-auto px-4 py-12 lg:py-16">
         <div className="text-center mb-16">
           <h2 className="text-3xl lg:text-4xl font-bold text-slate-900 mb-4">
-            Everything you need to extract text
+            Spend More Time on Understanding, Not on Typing
+          </h2>
+          <h2 className="text-3xl lg:text-4xl font-bold text-slate-900 mb-4">
+            Saves Upto 80% of Your Time
           </h2>
           <p className="text-lg text-slate-600 max-w-2xl mx-auto">
             Powerful features designed to make text extraction seamless and efficient for professionals and everyday users alike.

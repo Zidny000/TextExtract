@@ -23,7 +23,7 @@ def get_profile():
         
         # Get user's devices
         devices = Device.get_user_devices(user['id'])
-
+        print(user)
         # Return user profile
         return jsonify({
             "user": user,

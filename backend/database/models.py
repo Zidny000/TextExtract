@@ -42,14 +42,12 @@ class User:
             if len(response.data) > 0:
                 user = response.data[0]
 
-                # Set defaults if not provided
-                if subscription_start is None:
-                    subscription_start = datetime.datetime.now().isoformat()
-                    
-                if subscription_end is None and plan_type != "free":
-                    # Default to 1 month subscription
-                    end_date = datetime.datetime.now() + datetime.timedelta(days=30)
-                    subscription_end = end_date.isoformat()
+                subscription_start = datetime.datetime.now().isoformat()
+                
+        
+                # Default to 1 month subscription
+                end_date = datetime.datetime.now() + datetime.timedelta(days=30)
+                subscription_end = end_date.isoformat()
                 
                 # Create free subscription entry if successful
                 if plan:

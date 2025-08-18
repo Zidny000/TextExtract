@@ -12,7 +12,7 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 
 const ChangePasswordPage = () => {
-  const { user } = useAuth();
+  const { authUser } = useAuth();
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     currentPassword: '',
@@ -55,7 +55,7 @@ const ChangePasswordPage = () => {
     }
   };
 
-  if (!user) {
+  if (!authUser) {
     navigate('/login');
     return null;
   }

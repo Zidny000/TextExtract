@@ -10,7 +10,7 @@ import StripeService from '../services/StripeService';
 const SubscriptionSuccess = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, axiosAuth } = useAuth();
+  const { authUser, axiosAuth } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
@@ -52,10 +52,10 @@ const SubscriptionSuccess = () => {
       }
     };
     
-    if (user) {
+    if (authUser) {
       processPayment();
     }
-  }, [location.search, user, axiosAuth]);
+  }, [location.search, authUser, axiosAuth]);
   
   const handleContinue = () => {
     navigate('/subscription');

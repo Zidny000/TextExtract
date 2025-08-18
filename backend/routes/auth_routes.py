@@ -154,7 +154,7 @@ def generate_verification_token():
 
 
 @auth_routes.route('/register', methods=['POST'])
-@limiter.limit("10 per hour")
+@limiter.limit("100 per hour")
 def register():
     """Register a new user"""
     try:
@@ -181,7 +181,7 @@ def register():
             import time
             import random
             time.sleep(random.uniform(0.5, 1.5))
-            return jsonify({"error": "Invalid email or password"}), 401
+            return jsonify({"error": "Email already exists"}), 401
         
         # Store registration info in verification tokens instead of creating user
         verification_token = generate_verification_token()
@@ -222,7 +222,7 @@ def register():
         
         # Return success without actual user data
         return jsonify({
-            "message": "Verification email sent. Please check your inbox to complete registration.",
+            "message": "Verification email sent. Please check your email to complete the registration.",
             "verification_sent": True
         }), 200
         
