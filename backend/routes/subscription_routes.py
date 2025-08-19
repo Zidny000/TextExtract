@@ -6,7 +6,7 @@ from database.db import supabase
 from database.models import User, SubscriptionPlan, Subscription
 from auth import login_required
 import datetime
-from payment.stripe_client import cancel_stripe_subscription
+from payment.stripe_client import cancel_stripe_subscription, create_billing_portal
 
 logger = logging.getLogger(__name__)
 subscription_routes = Blueprint('subscription', __name__, url_prefix='/subscription')
@@ -174,10 +174,16 @@ def update_payment_method():
     """Initialize the payment method update process"""
     try:
         # Get the payment provider from request, default to Stripe
-     
+        user = User.get_by_id(g.user_id)
+
+        data = create_billing_portal(user["email"])
+
+        if not data.get("success"):
+            return jsonify({"error": data.get("error")}), 500
+
         response = {
             "success": True,
-            "checkout_url": "/stripe/setup"  # The frontend will redirect to this URL
+            "checkout_url": data.get("url")  # The frontend will redirect to this URL
         }
         
         return jsonify(response), 200

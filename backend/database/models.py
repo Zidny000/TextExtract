@@ -598,6 +598,7 @@ class Subscription:
                 "updated_at": datetime.datetime.now().isoformat(),
                 "start_date": subscription_start,
                 "end_date": None,
+                "renewal_date": None
             }
 
             response = supabase.table("subscriptions").update(update_data).eq("id", subscription_id).execute()

@@ -99,9 +99,7 @@ class StripeService {
       
       if (response.data.success) {
         try {
-          // Now get the actual setup intent
-          const setupResponse = await this.axiosInstance.post('/stripe/create-setup-intent');
-          return setupResponse.data;
+          return response.data;
         } catch (setupError) {
           console.error('Error creating setup intent:', setupError);
           throw new Error('Failed to create payment setup intent');

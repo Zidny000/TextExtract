@@ -233,24 +233,8 @@ const SubscriptionPage = () => {
     }
   };
 
-  const handleUpdatePaymentMethod = async () => {
-    try {
-      // Open dialog to update payment method
-      setActiveDialog({
-        open: true,
-        planId: userPlan.plan.id,
-        planName: userPlan.plan.name,
-        price: userPlan.plan.price,
-        isPaymentUpdate: true
-      });
-      
-    } catch (error) {
-      console.error('Error updating payment method:', error);
-      setError('Failed to update payment method');
-    }
-  };
 
-  const handleUpdatePaymentMethodConfirm = async () => {
+  const handleUpdatePaymentMethod = async () => {
     setUpgradeStatus({ loading: true, success: false, error: '' });
     try {
       // Process payment method update based on selected payment method
@@ -439,30 +423,14 @@ const SubscriptionPage = () => {
 
             {userPlan.plan.name !== 'free' && (
               <Box sx={{ mt: 2, display: 'flex', gap: 2 }}>
-                {userPlan.usage.status === 'expired' || userPlan.usage.status === 'payment_failed' ? (
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    onClick={() => handleUpgradeClick(userPlan.plan.id, userPlan.plan.name, userPlan.plan.price)}
-                  >
-                    Renew Subscription
-                  </Button>
-                ) : (
-                  <Button
-                    variant="outlined"
-                    color="error"
-                    onClick={handleCancelSubscription}
-                  >
-                    Cancel Subscription
-                  </Button>
-                )}
+             
                 
                 <Button
                   variant="outlined"
                   color="primary"
                   onClick={handleUpdatePaymentMethod}
                 >
-                  Update Payment Method
+                  Manage Subscription
                 </Button>
               </Box>
             )}
@@ -616,7 +584,7 @@ const SubscriptionPage = () => {
               Cancel
             </Button>
             <Button 
-              onClick={activeDialog.isPaymentUpdate ? handleUpdatePaymentMethodConfirm : handleUpgradeConfirm}
+              onClick={handleUpgradeConfirm}
               color="primary"
               variant="contained"
               disabled={upgradeStatus.loading}

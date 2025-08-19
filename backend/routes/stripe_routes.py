@@ -44,6 +44,7 @@ def create_stripe_checkout():
 
         # Create checkout session
         checkout_session = create_checkout_session(
+            customer_name=user["full_name"],
             customer_email=user["email"],
             plan_id=plan["id"],
             price_id=stripe_price_id
@@ -84,6 +85,7 @@ def create_stripe_buy_credit_checkout():
 
         # Create checkout session
         checkout_session = create_buy_credit_checkout_session(
+            customer_name=user["full_name"],
             customer_email=user["email"],
             user_id=user["id"],
             amount=amount,
@@ -197,10 +199,7 @@ def stripe_webhook():
             stripe_sub_id = session.get('id')
             subscription_start = datetime.fromtimestamp(session.get("current_period_start"), tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
             subscription_end = datetime.fromtimestamp(session.get("current_period_end"), tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
-
-        
-            Subscription.update_status(subscription['id'],session.get("status"))
-      
+                  
             # Update existing subscription
             subscription = Subscription.renew_subscription(
                 start_date=subscription_start,
@@ -208,6 +207,8 @@ def stripe_webhook():
                 renewal_date=subscription_end,
                 external_subscription_id=stripe_sub_id
             )
+
+            Subscription.update_status(subscription['id'],session.get("status"))
 
             if not subscription:
                 logger.error(f"Failed to renew subscription for user {user['id']} with plan {plan_id}")
@@ -248,7 +249,7 @@ def stripe_webhook():
         #     Subscription.update_status(subscription['id'],'payment_failed')
 
         # Return a 200 for other event types we're not handling
-        # return jsonify({"success": True}), 200
+        return jsonify({"success": True}), 200
     
     except Exception as e:
         logger.error(f"Error processing Stripe webhook: {str(e)}")
