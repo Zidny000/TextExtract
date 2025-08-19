@@ -572,17 +572,11 @@ class Subscription:
     def get_active_subscription(user_id):
         """Get the active subscription for a user"""
         try:
-            response = supabase.table("subscriptions").select("*").eq("user_id", user_id).eq("status", "active").execute()
+            response = supabase.table("subscriptions").select("*").eq("user_id", user_id).execute()
             
             if len(response.data) > 0:
                 return response.data[0]
             
-            # Also check for free tier subscription
-            response = supabase.table("subscriptions").select("*").eq("user_id", user_id).eq("status", "free_tier").execute()
-            
-            if len(response.data) > 0:
-                return response.data[0]
-                
             return None
         except Exception as e:
             logger.error(f"Error getting active subscription: {str(e)}")
@@ -670,88 +664,15 @@ class Subscription:
             return None
         
     @staticmethod
-    def process_auto_renewal(subscription):
-        """
-        Process auto-renewal for a subscription using stored payment method.
-        Returns True if renewal was successful, False otherwise.
-        """
+    def get_subscription_by_external_sub_id(external_sub_id):
         try:
-            from payment.stripe_client import StripeClient
-            
-            user_id = subscription["user_id"]
-            plan_id = subscription["plan_id"]
-            
-            # Get plan details
-            plan = SubscriptionPlan.get_by_id(plan_id)
-            if not plan:
-                logger.error(f"Plan {plan_id} not found for auto-renewal")
-                return False
-                
-            # Get user's payment method
-            payment_method = Subscription.get_user_payment_method(user_id)
-            if not payment_method:
-                logger.error(f"No payment method found for user {user_id}")
-                # Mark subscription as payment_failed
-                Subscription.update_status(subscription["id"], "payment_failed")
-                Subscription.send_renewal_failure_notification(user_id, subscription["id"])
-                return False
-                
-            # Process payment with Stripe
-            stripe_client = StripeClient()
-            payment_result = stripe_client.charge_subscription(
-                user_id=user_id,
-                payment_method_id=payment_method["id"],
-                amount=plan["price"],
-                currency=plan["currency"],
-                description=f"Auto-renewal for {plan['name']} plan"
-            )
-            
-            if not payment_result.get("success"):
-                # Payment failed
-                logger.error(f"Auto-renewal payment failed for user {user_id}: {payment_result.get('error')}")
-                Subscription.update_status(subscription["id"], "payment_failed")
-                Subscription.send_renewal_failure_notification(user_id, subscription["id"])
-                return False
-                
-            # Payment successful, extend subscription
-            now = datetime.datetime.now(datetime.timezone.utc)
-            new_end_date = now + datetime.timedelta(days=30) # Default to 1 month
-            
-            if plan.get("interval") == "year":
-                new_end_date = now + datetime.timedelta(days=365)
-            
-            # Update subscription
-            update_data = {
-                "status": "active",
-                "start_date": now.isoformat(),
-                "end_date": new_end_date.isoformat(),
-                "renewal_date": new_end_date.isoformat(),
-                "updated_at": now.isoformat(),
-                "payment_status": "paid",
-                "last_payment_date": now.isoformat()
-            }
-            
-            supabase.table("subscriptions").update(update_data).eq("id", subscription["id"]).execute()
-            
-            # Create payment transaction record
-            PaymentTransaction.create(
-                user_id=user_id,
-                plan_id=plan_id,
-                amount=plan["price"],
-                currency=plan["currency"],
-                payment_provider="stripe",
-                transaction_id=payment_result.get("transaction_id"),
-                status="completed"
-            )
-            
-            # Send renewal success notification
-            Subscription.send_renewal_success_notification(user_id, subscription["id"])
-            
-            return True
-            
+            response = supabase.table("subscriptions").select("*").eq("external_subscription_id", external_sub_id).execute()
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
         except Exception as e:
-            logger.error(f"Error processing auto-renewal: {str(e)}")
-            return False
+            logger.error(f"Error getting subscription by External Sub ID {external_sub_id}: {str(e)}")
+            return None
     
     @staticmethod
     def get_user_payment_method(user_id):

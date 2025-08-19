@@ -198,7 +198,9 @@ def stripe_webhook():
             subscription_start = datetime.fromtimestamp(session.get("current_period_start"), tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
             subscription_end = datetime.fromtimestamp(session.get("current_period_end"), tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f%z')
 
-
+        
+            Subscription.update_status(subscription['id'],session.get("status"))
+      
             # Update existing subscription
             subscription = Subscription.renew_subscription(
                 start_date=subscription_start,
@@ -213,27 +215,40 @@ def stripe_webhook():
             
             return jsonify({"success": True}), 200
 
-
-
         if event['type'] == 'customer.subscription.deleted' :
             session = event['data']['object']
- 
-        if event['type'] == 'checkout.session.async_payment_failed' or event['type'] == 'checkout.session.expired' or event['type'] == 'payment_intent.payment_failed':
-            session = event['data']['object']
-            user_email = session.get('customer_details', {}).get('email')
-            user = User.get_by_email(user_email)
+            stripe_sub_id = session.get('id')
 
+            if not stripe_sub_id:
+                logger.error(f"Stripe subscription ID not found")
+                return jsonify({"error": "Stripe subscription ID not found"}), 404
+            
             # Get subscription details including plan
-            sub_details = Subscription.get_user_subscription_details(user["id"])
-      
-            if not sub_details:
+            subscription = Subscription.get_subscription_by_external_sub_id(stripe_sub_id)
+
+            if not subscription:
                 return jsonify({"error": "Subscription details not found"}), 404
 
-            subscription = sub_details["subscription"]
-            Subscription.update_status(subscription['id'],'payment_failed')
+            Subscription.cancel_subscription(subscription['id'])
+
+            return jsonify({"success": True}), 200
+
+        # if event['type'] == 'checkout.session.async_payment_failed' or event['type'] == 'checkout.session.expired' or event['type'] == 'payment_intent.payment_failed':
+        #     session = event['data']['object']
+        #     user_email = session.get('customer_details', {}).get('email')
+        #     user = User.get_by_email(user_email)
+
+        #     # Get subscription details including plan
+        #     sub_details = Subscription.get_user_subscription_details(user["id"])
+      
+        #     if not sub_details:
+        #         return jsonify({"error": "Subscription details not found"}), 404
+
+        #     subscription = sub_details["subscription"]
+        #     Subscription.update_status(subscription['id'],'payment_failed')
 
         # Return a 200 for other event types we're not handling
-        return jsonify({"success": True}), 200
+        # return jsonify({"success": True}), 200
     
     except Exception as e:
         logger.error(f"Error processing Stripe webhook: {str(e)}")

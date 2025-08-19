@@ -37,16 +37,7 @@ def get_user_plan():
         subscription = sub_details["subscription"]
         
         # Calculate subscription status
-        subscription_status = "active"
-        
-        if not subscription:
-            subscription_status = "free" if plan["name"] == "free" else "inactive"
-        elif subscription.get("status") == "payment_failed":
-            subscription_status = "payment_failed"
-        elif subscription.get("end_date"):
-            end_date = datetime.datetime.fromisoformat(subscription["end_date"].replace("Z", "+00:00"))
-            if end_date < datetime.datetime.now(datetime.timezone.utc):
-                subscription_status = "expired"
+        subscription_status = subscription.get("status")
         
         # Get usage statistics
         today = datetime.date.today()

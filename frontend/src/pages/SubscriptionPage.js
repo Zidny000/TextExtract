@@ -403,12 +403,12 @@ const SubscriptionPage = () => {
                       primary="Status" 
                       secondary={
                         <Box sx={{ 
-                          fontWeight: userPlan.usage.status === 'expired' || userPlan.usage.status === 'payment_failed' ? 'bold' : 'normal',
+                        
                           color: userPlan.usage.status === 'active' ? 'success.main' : 
-                                 userPlan.usage.status === 'expired' || userPlan.usage.status === 'payment_failed' ? 'error.main' : 
-                                 userPlan.usage.status === 'cancelled' ? 'warning.main' : 'text.primary'
+                                 userPlan.usage.status === 'past_due' ? 'error.main' : 
+                                 userPlan.usage.status === 'free_tier' ? '#007FFF' : 'text.primary'
                         }}>
-                          {userPlan.usage.status.toUpperCase()}
+                          {userPlan.usage.status == 'past_due' ? 'PAST DUE ( Please complete payment within '+new Date(new Date(userPlan.usage.start_date).setDate(new Date(userPlan.usage.start_date).getDate() + 5)).toLocaleDateString()+' or Your subscription will be cancelled. Change the payment method if the current payment method fails to complete the payment )' : userPlan.usage.status == 'free_tier' ? 'FREE TIER' : userPlan.usage.status.toUpperCase()}
                         </Box>
                       } 
                     />

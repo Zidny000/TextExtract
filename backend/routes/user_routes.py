@@ -1,6 +1,6 @@
 import logging
 from flask import Blueprint, request, jsonify, g
-from database.models import User
+from database.models import User, Subscription
 from auth import login_required
 from database.db import supabase
 import datetime
@@ -20,11 +20,18 @@ def get_profile():
         
         # Get today's request count
         today_count = User.get_subscription_period_request_count(user['id'])
-        
+
+        subscription = Subscription.get_active_subscription(user['id'])
+
+        if not subscription:
+            return jsonify({"error": "Subscription not found"}), 404
+
         # Return user profile
         return jsonify({
             "user": user,
             "usage": {
+                "subscription_status": subscription.get("status"),
+                "subscription_starts": subscription.get("start_date"),
                 "monthly_requests": today_count,
                 "remaining_requests": user.get("max_requests_per_month", 20) - today_count,
                 "plan_limit": user.get("max_requests_per_month", 20),

@@ -243,10 +243,32 @@ const ProfilePage = () => {
               <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
                 <Activity className="h-4 w-4 text-slate-500" />
                 <div>
-                  <p className="text-sm text-slate-500">Status</p>
-                  <Badge variant="secondary" className="bg-green-100 text-green-800 hover:bg-green-200">
-                    {user.status || 'ACTIVE'}
-                  </Badge>
+                  <p className="text-sm text-slate-500">Subscription Status</p>
+                  {
+                    usageStats?.subscription_status == 'free_tier' && (
+                      <Badge variant="secondary" className="bg-blue-100 text-blue-800 hover:bg-blue-200">
+                        FREE TIER
+                      </Badge>
+                    )
+                  }
+                  {
+                    usageStats?.subscription_status == 'active' && (
+                      <Badge variant="secondary" className="bg-green-100 text-green-800 hover:bg-green-200">
+                        ACTIVE
+                      </Badge>
+                    )
+                  }
+
+                  {
+                    usageStats?.subscription_status == 'past_due' && (
+                      <Badge variant="secondary" className="bg-red-100 text-red-800 hover:bg-red-200">
+                        PAST DUE
+                      </Badge>
+                    )
+                  }
+
+
+                  
                 </div>
               </div>
               
@@ -355,9 +377,28 @@ const ProfilePage = () => {
                   </h3>
                   <p className="text-slate-600">Current subscription</p>
                 </div>
-                <Badge variant="secondary" className="bg-blue-100 text-blue-800 text-sm px-3 py-1">
-                  Active
-                </Badge>
+                  {
+                    usageStats?.subscription_status == 'free_tier' && (
+                      <Badge variant="secondary" className="bg-blue-100 text-blue-800 hover:bg-blue-200">
+                        FREE TIER
+                      </Badge>
+                    )
+                  }
+                  {
+                    usageStats?.subscription_status == 'active' && (
+                      <Badge variant="secondary" className="bg-green-100 text-green-800 hover:bg-green-200">
+                        ACTIVE
+                      </Badge>
+                    )
+                  }
+
+                  {
+                    usageStats?.subscription_status == 'past_due' && (
+                      <Badge variant="secondary" className="bg-red-100 text-red-800 hover:bg-red-200">
+                        PAST DUE
+                      </Badge>
+                    )
+                  }
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">

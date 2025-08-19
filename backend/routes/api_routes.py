@@ -56,24 +56,6 @@ def ocr_proxy():
                   "auto_renewal": subscription.get("auto_renewal", False)
               }), 402  # 402 Payment Required
         
-        # Check if subscription is cancelled
-        if subscription and subscription.get("status") == "cancelled":
-            return jsonify({
-                "error": "Subscription cancelled",
-                "details": "Your subscription has been cancelled. Please renew your subscription to continue using the service.",
-                "subscription_status": "cancelled",
-                "renewal_url": "/subscription"
-            }), 402  # 402 Payment Required
-            
-        # Check if payment failed
-        if subscription and subscription.get("status") == "payment_failed":
-            return jsonify({
-                "error": "Payment failed",
-                "details": "Your last payment attempt failed. Please update your payment method to continue using the service.",
-                "subscription_status": "payment_failed",
-                "renewal_url": "/subscription/payment-update"
-            }), 402  # 402 Payment Required
-        
         # Check if user can make another request based on their plan
         if not User.can_make_request(g.user_id):
             return jsonify({
