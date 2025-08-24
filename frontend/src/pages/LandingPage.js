@@ -27,9 +27,9 @@ const LandingPage = () => {
       description: "Simply select an area on your screen and TextExtract instantly copies all visible text to your clipboard.",
     },
     {
-      icon: Copy,
-      title: "Copy to Clipboard Instantly",
-      description: "No need to click \"copy\"—TextExtract puts extracted text right into your clipboard, ready to paste.",
+      icon: MonitorSpeaker,
+      title: "Multi-Monitor Support",
+      description: "Using more than one screen? Easily choose which monitor to capture from within the app.",
     },
     {
       icon: Globe,
@@ -37,14 +37,14 @@ const LandingPage = () => {
       description: "TextExtract is built with multilingual OCR capabilities—perfect for users around the world.",
     },
     {
+      icon: Copy,
+      title: "Copy to Clipboard Instantly",
+      description: "No need to click \"copy\"—TextExtract puts extracted text right into your clipboard, ready to paste.",
+    },
+    {
       icon: Zap,
       title: "Accurate and Fast OCR with AI",
       description: "Powered by advanced AI technology for quick and reliable text extraction from images, PDFs, or apps.",
-    },
-    {
-      icon: MonitorSpeaker,
-      title: "Multi-Monitor Support",
-      description: "Using more than one screen? Easily choose which monitor to capture from within the app.",
     },
     {
       icon: Shield,
@@ -56,7 +56,7 @@ const LandingPage = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
       {/* Hero Section */}
-      <div className="container mx-auto px-4 py-12 lg:py-16">
+      <div className="container mx-auto px-4 py-12">
         <div className="text-center max-w-7xl mx-auto">
           <Badge variant="secondary" className="mb-4 px-4 py-2 text-sm font-medium">
             🚀 Now Available
@@ -77,7 +77,7 @@ const LandingPage = () => {
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-8">
 
              <a 
-              href="https://github.com/Zidny000/textextract-releases/releases/download/v1.0.0/TextExtract_Setup.exe" 
+              href="https://github.com/Zidny000/textextract-releases/releases/download/v1.0.1/TextExtract_Setup.exe" 
               download="TextExtract.exe"
               className="group"
             >
@@ -107,6 +107,46 @@ const LandingPage = () => {
           <div className="flex items-center justify-center gap-2 text-md text-slate-500">
             <CheckCircle className="h-4 w-4 text-green-500" />
             <span>Free to try • No credit card required</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Video Tutorials Section */}
+      <div className="container mx-auto px-4 ">
+        <div className="text-center mb-10">
+          <h2 className="text-3xl lg:text-4xl font-bold text-slate-900 mb-4">
+            See TextExtract in Action
+          </h2>
+          <p className="text-lg text-slate-600 max-w-2xl mx-auto mb-8">
+            Watch how TextExtract works and learn how to install it on your computer
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+            <div className="rounded-xl overflow-hidden shadow-lg">
+              <h3 className="text-xl font-semibold mb-3">How It's Done!</h3>
+              <div className="aspect-w-16 aspect-h-9">
+                <iframe 
+                  className="w-full h-64 md:h-72 lg:h-80"
+                  src="https://www.youtube.com/embed/xkbcvbkDEvc?rel=0&vq=hd720&modestbranding=1" 
+                  title="How TextExtract Works"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                  allowFullScreen>
+                </iframe>
+              </div>
+            </div>
+            <div className="rounded-xl overflow-hidden shadow-lg">
+              <h3 className="text-xl font-semibold mb-3">Installation Process</h3>
+              <div className="aspect-w-16 aspect-h-9">
+                <iframe 
+                  className="w-full h-64 md:h-72 lg:h-80"
+                  src="https://www.youtube.com/embed/S_6UeYiYQro?rel=0&vq=hd720&modestbranding=1" 
+                  title="How to Install TextExtract"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                  allowFullScreen>
+                </iframe>
+              </div>
+            </div>
           </div>
         </div>
       </div>
