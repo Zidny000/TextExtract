@@ -8,24 +8,28 @@ import {
   Button,
   Link,
   Alert,
+  CircularProgress, 
 } from '@mui/material';
 import { useAuth } from '../context/AuthContext';
 
 const SignupPage = () => {
+  const navigate = useNavigate();
+  const { signup } = useAuth();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [error, setError] = useState('');
-  const { signup } = useAuth();
-  const navigate = useNavigate();
+  const [loadingButton, setLoadingButton] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccessMessage('');
-
+    setLoadingButton(true);
     const result = await signup(email, password, fullName);
+    setLoadingButton(false);
     if (result.success) {
       setSuccessMessage(result.message || 'Please check your email to complete registration');
       // Clear the form
@@ -100,8 +104,9 @@ const SignupPage = () => {
             fullWidth
             variant="contained"
             sx={{ mt: 3, mb: 2 }}
+            disabled={loadingButton}
           >
-            Sign Up
+            {loadingButton ? <CircularProgress size={24} /> : 'Sign Up'}
           </Button>
           <Box sx={{ textAlign: 'center' }}>
             <Link component={RouterLink} to="/login" variant="body2">

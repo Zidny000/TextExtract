@@ -1,6 +1,6 @@
 import logging
 from flask import Blueprint, request, jsonify, g, redirect, render_template, Response, session
-from database.models import User, Device
+from database.models import User
 from auth import generate_token, login_required, extract_device_info, validate_token
 import secrets
 import string
@@ -154,7 +154,7 @@ def generate_verification_token():
 
 
 @auth_routes.route('/register', methods=['POST'])
-@limiter.limit("10 per hour")
+@limiter.limit("100 per hour")
 def register():
     """Register a new user"""
     try:
@@ -181,7 +181,7 @@ def register():
             import time
             import random
             time.sleep(random.uniform(0.5, 1.5))
-            return jsonify({"error": "Invalid email or password"}), 401
+            return jsonify({"error": "Email already exists"}), 401
         
         # Store registration info in verification tokens instead of creating user
         verification_token = generate_verification_token()
@@ -190,8 +190,6 @@ def register():
             'password': data['password'],
             'full_name': data.get('full_name'),
             'plan_type': data.get('plan_type', 'free'),
-            'device_id': request.headers.get("X-Device-ID"),
-            'device_info': extract_device_info(request),
             'expires': datetime.now() + timedelta(hours=24)
         }
         
@@ -222,7 +220,7 @@ def register():
         
         # Return success without actual user data
         return jsonify({
-            "message": "Verification email sent. Please check your inbox to complete registration.",
+            "message": "Verification email sent. Please check your email to complete the registration.",
             "verification_sent": True
         }), 200
         
@@ -292,10 +290,6 @@ def login():
         from auth import generate_token
         access_token = generate_token(user['id'], user['email'], device_id)
         refresh_token = generate_token(user['id'], user['email'], device_id, is_refresh=True)
-        
-        # Register device if identifier provided
-        if device_id:
-            Device.register(user['id'], device_id, device_info)
         
         # Return user data and tokens (exclude password_hash)
         user.pop('password_hash', None)
@@ -621,12 +615,6 @@ def verify_email(token):
                 
             logger.info(f"User created successfully with ID: {new_user['id']}")
             
-            # Register device if identifier provided
-            device_id = registration_data.get('device_id')
-            device_info = registration_data.get('device_info')
-            if device_id:
-                logger.info(f"Registering device {device_id} for user: {new_user['id']}")
-                Device.register(new_user['id'], device_id, device_info)
             
             # Remove used token
             verification_tokens.pop(token)
@@ -759,8 +747,6 @@ def delete_account():
         
         # First delete all associated devices
         from database.db import supabase
-        
-        supabase.table("devices").delete().eq("user_id", user_id).execute()
         
         # Delete user's API requests
         supabase.table("api_requests").delete().eq("user_id", user_id).execute()
@@ -939,10 +925,6 @@ def complete_web_login():
         access_token = generate_token(user['id'], user['email'], device_id)
         refresh_token = generate_token(user['id'], user['email'], device_id, is_refresh=True)
         
-        # Register device if identifier provided
-        if device_id:
-            Device.register(user['id'], device_id, device_info)
-            logger.info(f"Registered device {device_id} for user {email}")
         
         # Construct the callback URL
         callback_url = f"{redirect_uri}?token={access_token}&refresh_token={refresh_token}&user_id={user['id']}&email={user['email']}&state={state}"
@@ -996,11 +978,6 @@ def direct_web_login():
         from auth import generate_token
         access_token = generate_token(user['id'], user['email'], device_id)
         refresh_token = generate_token(user['id'], user['email'], device_id, is_refresh=True)
-        
-        # Register device if identifier provided
-        if device_id:
-            Device.register(user['id'], device_id, device_info)
-            logger.info(f"Registered device {device_id} for user {email}")
         
         # Construct the callback URL
         callback_url = f"{redirect_uri}?token={access_token}&refresh_token={refresh_token}&user_id={user['id']}&email={user['email']}&state={state}"

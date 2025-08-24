@@ -10,11 +10,12 @@ import {
 import { CheckCircle as CheckIcon, ArrowForward as ArrowIcon,
          CreditCard as CreditCardIcon, Close as CloseIcon } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
-import PayPalService from '../services/PayPalService';
+
 import StripeService from '../services/StripeService';
 
 const SubscriptionPage = () => {
-  const { user, axiosAuth } = useAuth();
+  const { authUser, axiosAuth } = useAuth();
+  const [user, setUser] = useState(authUser);
   const navigate = useNavigate();
   const location = useLocation();
   const [plans, setPlans] = useState([]);
@@ -22,14 +23,16 @@ const SubscriptionPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [upgradeStatus, setUpgradeStatus] = useState({ loading: false, success: false, error: '' });
-  const [activeDialog, setActiveDialog] = useState({ open: false, planId: null, planName: '', price: 0 });
-  const [paymentMethod, setPaymentMethod] = useState('paypal');
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });  // Initialize payment services on component mount
+  const [activeDialog, setActiveDialog] = useState({ open: false, stripePriceId:'', planId: '', planName: '', price: 0});
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [ocrCredits, setOcrCredits] = useState({
+    amount: '100',
+    price: 2.99
+  });  // Initialize payment services on component mount
+
   useEffect(() => {
     const initPaymentSystems = async () => {
       try {
-        // Initialize PayPal
-        await PayPalService.initialize();
         
         // Set up Stripe
         if (axiosAuth.defaults.headers.common['Authorization']) {
@@ -62,7 +65,7 @@ const SubscriptionPage = () => {
           
           if (verificationResult.success) {
             // Refresh user plan
-            const userPlanData = await PayPalService.getUserPlan();
+            const userPlanData = await StripeService.getUserPlan();
             setUserPlan(userPlanData);
             
             // Show success message
@@ -89,7 +92,7 @@ const SubscriptionPage = () => {
       
       verifyStripePayment();
     }
-  }, [location.search, user]);
+  }, [location.search, authUser]);
   // Load subscription plans and user plan
   useEffect(() => {
     const loadData = async () => {
@@ -100,19 +103,17 @@ const SubscriptionPage = () => {
         if (axiosAuth.defaults.headers.common['Authorization']) {
           const token = axiosAuth.defaults.headers.common['Authorization'].split(' ')[1];
           const csrf_token = axiosAuth.defaults.headers.common['X-CSRF-TOKEN']
-          PayPalService.setAuthToken(token);
-          PayPalService.setCsrfToken(csrf_token);
           StripeService.setAuthToken(token);
           StripeService.setCsrfToken(csrf_token);
         }
 
         // Load subscription plans
-        const plansData = await PayPalService.getPlans();
+        const plansData = await StripeService.getPlans();
         setPlans(plansData);
 
         // Load user plan if logged in
-        if (user) {
-          const userPlanData = await PayPalService.getUserPlan();
+        if (authUser) {
+          const userPlanData = await StripeService.getUserPlan();
           setUserPlan(userPlanData);
         }
       } catch (error) {
@@ -124,11 +125,11 @@ const SubscriptionPage = () => {
     };
 
     loadData();
-  }, [user, axiosAuth.defaults.headers.common]);
+  }, [authUser, axiosAuth.defaults.headers.common]);
 
-  const handleUpgradeClick = (planId, planName, price) => {
+  const handleUpgradeClick = (stripePriceId, planId, planName, price) => {
     // Check if user is logged in before showing the payment dialog
-    if (!user) {
+    if (!authUser) {
       // Redirect to login page with return URL set to subscription page
       navigate('/login', { state: { from: '/subscription' } });
       return;
@@ -137,6 +138,7 @@ const SubscriptionPage = () => {
     // If user is logged in, show the payment dialog
     setActiveDialog({
       open: true,
+      stripePriceId,
       planId,
       planName,
       price
@@ -146,17 +148,12 @@ const SubscriptionPage = () => {
   const handleDialogClose = () => {
     setActiveDialog({ ...activeDialog, open: false });
   };
-  const handlePaymentMethodChange = (event, newValue) => {
-    if (newValue !== null) {
-      setPaymentMethod(newValue);
-    }
-  };
 
-  const handleStripeCheckout = async (upgradeResponse) => {
+  const handleStripeCheckout = async (stripePriceId, planId) => {
     try {
       // Create Stripe checkout session
-      const checkoutResponse = await StripeService.createCheckoutSession(upgradeResponse.transaction_id);
-      
+      const checkoutResponse = await StripeService.createCheckoutSession(stripePriceId, planId);
+
       if (checkoutResponse.success) {
         // Redirect to Stripe checkout
         StripeService.redirectToCheckout(checkoutResponse.checkout_url);
@@ -180,10 +177,12 @@ const SubscriptionPage = () => {
       const autoRenewal = userPlan?.usage?.auto_renewal ?? false;
       
       // Initiate the upgrade process
-      const upgradeResponse = await PayPalService.initiateUpgrade(activeDialog.planId, autoRenewal);
-      
+     
+
       // If it's a free plan, we're done
       if (activeDialog.price === 0) {
+         // Initiate the upgrade process
+      await StripeService.initiateUpgrade(userPlan.usage.subscription_id, activeDialog.planId, autoRenewal);
         setUpgradeStatus({
           loading: false,
           success: true,
@@ -194,38 +193,16 @@ const SubscriptionPage = () => {
         setActiveDialog({ ...activeDialog, open: false });
         
         // Reload user plan
-        const userPlanData = await PayPalService.getUserPlan();
+        const userPlanData = await StripeService.getUserPlan();
         setUserPlan(userPlanData);
         
         return;
       }
       
       // Process payment based on selected payment method
-      if (paymentMethod === 'stripe') {
-        await handleStripeCheckout(upgradeResponse);
-      } else {
-        // For PayPal
-        const paymentResponse = await PayPalService.processPayment(
-          upgradeResponse.transaction_id,
-          upgradeResponse.amount,
-          upgradeResponse.currency
-        );
-        
-        // Update status
-        setUpgradeStatus({
-          loading: false,
-          success: true,
-          error: ''
-        });
-        
-        // Close the dialog
-        setActiveDialog({ ...activeDialog, open: false });
-        
-        // Reload user plan
+      await handleStripeCheckout(activeDialog.stripePriceId, activeDialog.planId);
 
-        
-      }
-      const userPlanData = await PayPalService.getUserPlan();
+      const userPlanData = await StripeService.getUserPlan();
       setUserPlan(userPlanData);
       
     } catch (error) {
@@ -242,9 +219,9 @@ const SubscriptionPage = () => {
     if (window.confirm('Are you sure you want to cancel your subscription? You will be downgraded to the free plan.')) {
       try {
         setLoading(true);
-        await PayPalService.cancelSubscription();
+        await StripeService.cancelSubscription();
         // Reload user plan
-        const userPlanData = await PayPalService.getUserPlan();
+        const userPlanData = await StripeService.getUserPlan();
         setUserPlan(userPlanData);
         alert('Subscription cancelled successfully');
       } catch (error) {
@@ -256,90 +233,20 @@ const SubscriptionPage = () => {
     }
   };
 
-  const handleToggleAutoRenewal = async () => {
-    try {
-      setLoading(true);
-      const newAutoRenewalState = !userPlan.usage.auto_renewal;
-      
-      // Call backend API to update auto-renewal setting
-      await PayPalService.updateAutoRenewal(newAutoRenewalState);
-      
-      // Reload user plan
-      const userPlanData = await PayPalService.getUserPlan();
-      setUserPlan(userPlanData);
-      
-      // Show success message
-      setSnackbar({
-        open: true, 
-        message: `Auto-renewal has been ${newAutoRenewalState ? 'enabled' : 'disabled'}.`,
-        severity: 'success'
-      });
-      
-    } catch (error) {
-      console.error('Error toggling auto-renewal:', error);
-      setError('Failed to update auto-renewal setting');
-      setSnackbar({
-        open: true, 
-        message: 'Failed to update auto-renewal setting.',
-        severity: 'error'
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleUpdatePaymentMethod = async () => {
-    try {
-      // Open dialog to update payment method
-      setActiveDialog({
-        open: true,
-        planId: userPlan.plan.id,
-        planName: userPlan.plan.name,
-        price: userPlan.plan.price,
-        isPaymentUpdate: true
-      });
-      
-    } catch (error) {
-      console.error('Error updating payment method:', error);
-      setError('Failed to update payment method');
-    }
-  };
-
-  const handleUpdatePaymentMethodConfirm = async () => {
     setUpgradeStatus({ loading: true, success: false, error: '' });
     try {
       // Process payment method update based on selected payment method
-      if (paymentMethod === 'stripe') {
-        // Create a session to update payment method
-        const updateResponse = await StripeService.createPaymentMethodUpdateSession();
-        
-        if (updateResponse.success) {
-          // Redirect to Stripe to update payment method
-          StripeService.redirectToCheckout(updateResponse.checkout_url);
-        } else {
-          throw new Error('Failed to create payment method update session');
-        }
+   
+      // Create a session to update payment method
+      const updateResponse = await StripeService.createPaymentMethodUpdateSession();
+      
+      if (updateResponse.success) {
+        // Redirect to Stripe to update payment method
+        StripeService.redirectToCheckout(updateResponse.checkout_url);
       } else {
-        // For PayPal
-        const updateResponse = await PayPalService.updatePaymentMethod();
-        
-        if (updateResponse.success) {
-          // Close the dialog
-          setActiveDialog({ ...activeDialog, open: false });
-          
-          // Show success message
-          setSnackbar({
-            open: true, 
-            message: 'Payment method updated successfully.',
-            severity: 'success'
-          });
-          
-          // Reload user plan to get updated payment status
-          const userPlanData = await PayPalService.getUserPlan();
-          setUserPlan(userPlanData);
-        } else {
-          throw new Error('Failed to update payment method');
-        }
+        throw new Error('Failed to create payment method update session');
       }
       
       // Reset upgrade status
@@ -354,6 +261,43 @@ const SubscriptionPage = () => {
         loading: false,
         success: false,
         error: 'Failed to update payment method. Please try again.'
+      });
+    }
+  };
+
+  const buyCreditRequest = async () => {
+    try{
+      const amount = ocrCredits.amount;
+      const price = ocrCredits.price;
+      // Check if user is logged in
+      if (!authUser) {
+        navigate('/login', { state: { from: '/subscription' } });
+        return;
+      }
+      console.log(amount,price)
+      setUpgradeStatus({ loading: true, success: false, error: '' });
+
+      // Create Stripe checkout session
+      const checkoutResponse = await StripeService.buyCredit(amount, price);
+
+      if (checkoutResponse.success) {
+        // Redirect to Stripe checkout
+        StripeService.redirectToCheckout(checkoutResponse.checkout_url);
+      } else {
+        throw new Error('Failed to create Stripe checkout session');
+      }
+      // Reset upgrade status
+      setUpgradeStatus({
+        loading: false,
+        success: true,
+        error: ''
+      });
+    } catch (error) {
+      console.error('Error buying OCR credits:', error);
+      setUpgradeStatus({
+        loading: false,
+        success: false,
+        error: 'Failed to purchase OCR credits. Please try again.'
       });
     }
   };
@@ -427,15 +371,7 @@ const SubscriptionPage = () => {
                       <CheckIcon color="primary" />
                     </ListItemIcon>
                     <ListItemText 
-                      primary={`${userPlan.plan.device_limit} devices allowed`} 
-                    />
-                  </ListItem>
-                  <ListItem>
-                    <ListItemIcon>
-                      <CheckIcon color="primary" />
-                    </ListItemIcon>
-                    <ListItemText 
-                      primary={`$${userPlan.plan.price.toFixed(2)}/${userPlan.plan.interval}`} 
+                      primary={`$${userPlan.plan.price.toFixed(2)}/month`} 
                     />
                   </ListItem>
                 </List>
@@ -451,17 +387,12 @@ const SubscriptionPage = () => {
                       primary="Status" 
                       secondary={
                         <Box sx={{ 
-                          fontWeight: userPlan.usage.status === 'expired' || userPlan.usage.status === 'payment_failed' ? 'bold' : 'normal',
+                        
                           color: userPlan.usage.status === 'active' ? 'success.main' : 
-                                 userPlan.usage.status === 'expired' || userPlan.usage.status === 'payment_failed' ? 'error.main' : 
-                                 userPlan.usage.status === 'cancelled' ? 'warning.main' : 'text.primary'
+                                 userPlan.usage.status === 'past_due' ? 'error.main' : 
+                                 userPlan.usage.status === 'free_tier' ? '#007FFF' : 'text.primary'
                         }}>
-                          {userPlan.usage.status.toUpperCase()}
-                          {userPlan.usage.in_grace_period && (
-                            <Typography variant="caption" color="warning.main" sx={{ ml: 1, fontWeight: 'bold' }}>
-                              (GRACE PERIOD)
-                            </Typography>
-                          )}
+                          {userPlan.usage.status == 'past_due' ? 'PAST DUE ( Please complete payment within '+new Date(new Date(userPlan.usage.start_date).setDate(new Date(userPlan.usage.start_date).getDate() + 5)).toLocaleDateString()+' or Your subscription will be cancelled. Change the payment method if the current payment method fails to complete the payment )' : userPlan.usage.status == 'free_tier' ? 'FREE TIER' : userPlan.usage.status.toUpperCase()}
                         </Box>
                       } 
                     />
@@ -474,8 +405,8 @@ const SubscriptionPage = () => {
                   </ListItem>
                   <ListItem>
                     <ListItemText 
-                      primary="Device Usage" 
-                      secondary={`${userPlan.usage.device_count} / ${userPlan.usage.device_limit}`} 
+                      primary="Credit OCR Requests" 
+                      secondary={`${userPlan.usage.credit_requests}`} 
                     />
                   </ListItem>
                   {userPlan.usage.renewal_date && (
@@ -486,65 +417,97 @@ const SubscriptionPage = () => {
                       />
                     </ListItem>
                   )}
-                  {userPlan.usage.status !== 'free' && (
-                    <ListItem>
-                      <ListItemText 
-                        primary="Auto-Renewal" 
-                        secondary={userPlan.usage.auto_renewal ? 'Enabled' : 'Disabled'} 
-                      />
-                    </ListItem>
-                  )}
                 </List>
               </Grid>
             </Grid>
 
             {userPlan.plan.name !== 'free' && (
               <Box sx={{ mt: 2, display: 'flex', gap: 2 }}>
-                {userPlan.usage.status === 'expired' || userPlan.usage.status === 'payment_failed' ? (
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    onClick={() => handleUpgradeClick(userPlan.plan.id, userPlan.plan.name, userPlan.plan.price)}
-                  >
-                    Renew Subscription
-                  </Button>
-                ) : (
-                  <Button
-                    variant="outlined"
-                    color="error"
-                    onClick={handleCancelSubscription}
-                  >
-                    Cancel Subscription
-                  </Button>
-                )}
-                
-                <Button
-                  variant="outlined"
-                  color="primary"
-                  onClick={handleToggleAutoRenewal}
-                >
-                  {userPlan.usage.auto_renewal ? 'Disable Auto-Renewal' : 'Enable Auto-Renewal'}
-                </Button>
+             
                 
                 <Button
                   variant="outlined"
                   color="primary"
                   onClick={handleUpdatePaymentMethod}
                 >
-                  Update Payment Method
+                  Manage Subscription
                 </Button>
               </Box>
             )}
           </Paper>
         )}
 
+        {/* Credit OCR Requests Box */}
+        <Typography variant="h5" gutterBottom sx={{ mt: 4 }}>
+          Credit OCR Requests
+        </Typography>
+        <Paper elevation={3} sx={{ p: 3, mb: 4 }}>
+          <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ mb: { xs: 2, md: 0 }, width: { xs: '100%', md: 'auto' } }}>
+              <Typography variant="h6" gutterBottom>
+                Purchase OCR Credits
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Need OCR requests? Purchase credits anytime.
+              </Typography>
+              
+              {/* OCR Credit Packages Dropdown */}
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Box sx={{ minWidth: 120, mr: 2 }}>
+                  <select 
+                    className="MuiSelect-root"
+                    style={{ 
+                      padding: '10px', 
+                      borderRadius: '4px', 
+                      border: '1px solid #ccc',
+                      width: '100%',
+                      backgroundColor: 'transparent'
+                    }}
+                    value={ocrCredits.amount}
+                    onChange={(e) => {
+                      const amount = e.target.value;
+                      let price = 2.99;
+                      
+                      if (amount === '200') price = 5.99;
+                      else if (amount === '300') price = 7.99;
+                      
+                      setOcrCredits({ amount, price });
+                    }}
+                  >
+                    <option value="100">100 OCR Requests</option>
+                    <option value="200">200 OCR Requests</option>
+                    <option value="300">300 OCR Requests</option>
+                  </select>
+                </Box>
+                <Typography variant="h5" color="primary">
+                  ${ocrCredits.price.toFixed(2)}
+                </Typography>
+              </Box>
+            </Box>
+            
+            <Button 
+              variant="contained" 
+              color="primary" 
+              size="large"
+              endIcon={<CreditCardIcon />}
+              sx={{ 
+                mt: { xs: 2, md: 0 },
+                width: { xs: '100%', md: 'auto' } 
+              }}
+              onClick={buyCreditRequest}
+            >
+              Buy Now
+            </Button>
+          </Box>
+        </Paper>
+
         <Typography variant="h5" gutterBottom sx={{ mt: 4 }}>
           Available Plans
         </Typography>
 
-        <Grid container spacing={3}>
+        <Grid container spacing={3} sx={{ flexWrap: 'nowrap', overflowX: { xs: 'auto', md: 'visible' } }}>
           {plans.map((plan) => (
-            <Grid item xs={12} md={6} key={plan.id}>
+            <Grid item xs={12} sm={6} md={4} lg={3} key={plan.id} sx={{ minWidth: { xs: '90%', sm: 'auto' } }}>
               <Card 
                 elevation={3}
                 sx={{
@@ -563,7 +526,7 @@ const SubscriptionPage = () => {
                   <Typography variant="h4" color="primary" gutterBottom>
                     ${plan.price.toFixed(2)}
                     <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                      /{plan.interval}
+                      / month
                     </Typography>
                   </Typography>
                   <Typography variant="body2" color="text.secondary" paragraph>
@@ -577,29 +540,27 @@ const SubscriptionPage = () => {
                       </ListItemIcon>
                       <ListItemText primary={`${plan.max_requests_per_month} OCR requests per month`} />
                     </ListItem>
-                    <ListItem>
-                      <ListItemIcon>
-                        <CheckIcon color="primary" />
-                      </ListItemIcon>
-                      <ListItemText primary={`${plan.device_limit} devices allowed`} />
-                    </ListItem>
                   </List>
                 </CardContent>
                 <CardActions>
                   <Button 
                     fullWidth 
                     variant="contained" 
-                    endIcon={<ArrowIcon />}
+                    endIcon={ userPlan && userPlan.plan.name === plan.name ? null : <ArrowIcon />}
                     disabled={userPlan && userPlan.plan.name === plan.name}
-                    onClick={() => handleUpgradeClick(plan.id, plan.name, plan.price)}
+                    onClick={() => handleUpgradeClick(plan.stripe_price_id, plan.id, plan.name, plan.price)}
                   >
-                    {userPlan && userPlan.plan.name === plan.name ? 'Current Plan' : 'Purchase'}
+                    {userPlan && userPlan.plan.name === plan.name ? 'Current Plan' : 'Subscribe'}
                   </Button>
                 </CardActions>
               </Card>
             </Grid>
           ))}
-        </Grid>        {/* Upgrade Confirmation Dialog */}
+        </Grid>
+        
+        
+        
+        {/* Upgrade Confirmation Dialog */}
         <Dialog open={activeDialog.open} onClose={handleDialogClose} maxWidth="sm" fullWidth>
           <DialogTitle>
             {activeDialog.isPaymentUpdate ? 'Update Payment Method' : `Upgrade to ${activeDialog.planName.toUpperCase()}`}
@@ -610,10 +571,6 @@ const SubscriptionPage = () => {
                 <>
                   Update your payment method for your {userPlan?.plan?.name?.toUpperCase()} subscription.
                 </>
-              ) : activeDialog.price > 0 ? (
-                <>
-                  You are about to {userPlan?.usage?.status === 'expired' ? 'renew' : 'upgrade to'} the {activeDialog.planName.toUpperCase()} plan for ${activeDialog.price.toFixed(2)}/month.
-                </>
               ) : (
                 <>
                   You are about to switch to the {activeDialog.planName.toUpperCase()} plan.
@@ -621,65 +578,13 @@ const SubscriptionPage = () => {
               )}
             </DialogContentText>
             
-            {(activeDialog.price > 0 || activeDialog.isPaymentUpdate) && (
-              <Box sx={{ mt: 3, mb: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>
-                  Select Payment Method:
-                </Typography>
-                <ToggleButtonGroup
-                  value={paymentMethod}
-                  exclusive
-                  onChange={handlePaymentMethodChange}
-                  aria-label="payment method"
-                  sx={{ width: '100%', mt: 1 }}
-                >
-                  <ToggleButton value="paypal" aria-label="PayPal" sx={{ width: '50%' }}>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                      <img 
-                        src="https://www.paypalobjects.com/webstatic/mktg/logo/pp_cc_mark_37x23.jpg" 
-                        alt="PayPal" 
-                        style={{ height: 30, marginBottom: 8 }} 
-                      />
-                      <Typography variant="body2">PayPal</Typography>
-                    </Box>
-                  </ToggleButton>
-                  <ToggleButton value="stripe" aria-label="Credit Card" sx={{ width: '50%' }}>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                      <CreditCardIcon sx={{ fontSize: 30, mb: 1 }} />
-                      <Typography variant="body2">Credit Card</Typography>
-                    </Box>
-                  </ToggleButton>
-                </ToggleButtonGroup>
-                
-                {/* Auto-renewal option checkbox */}
-                {!activeDialog.isPaymentUpdate && userPlan?.plan?.name !== 'free' && (
-                  <Box sx={{ mt: 3, display: 'flex', alignItems: 'center' }}>
-                    <input 
-                      type="checkbox" 
-                      id="auto-renewal" 
-                      checked={userPlan?.usage?.auto_renewal ?? false}
-                      onChange={(e) => {
-                        // Update local state for dialog display
-                        // This will be properly saved when subscription is processed
-                        const newUserPlan = {...userPlan};
-                        newUserPlan.usage.auto_renewal = e.target.checked;
-                        setUserPlan(newUserPlan);
-                      }}
-                    />
-                    <Typography variant="body2" sx={{ ml: 1 }}>
-                      Enable auto-renewal (recommended)
-                    </Typography>
-                  </Box>
-                )}
-              </Box>
-            )}
           </DialogContent>
           <DialogActions>
             <Button onClick={handleDialogClose} disabled={upgradeStatus.loading}>
               Cancel
             </Button>
             <Button 
-              onClick={activeDialog.isPaymentUpdate ? handleUpdatePaymentMethodConfirm : handleUpgradeConfirm}
+              onClick={handleUpgradeConfirm}
               color="primary"
               variant="contained"
               disabled={upgradeStatus.loading}

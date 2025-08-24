@@ -1,6 +1,6 @@
 import logging
 from flask import Blueprint, request, jsonify, g
-from database.models import User, Device, ApiRequest
+from database.models import User, Subscription
 from auth import login_required
 from database.db import supabase
 import datetime
@@ -20,19 +20,23 @@ def get_profile():
         
         # Get today's request count
         today_count = User.get_subscription_period_request_count(user['id'])
-        
-        # Get user's devices
-        devices = Device.get_user_devices(user['id'])
+
+        subscription = Subscription.get_active_subscription(user['id'])
+
+        if not subscription:
+            return jsonify({"error": "Subscription not found"}), 404
 
         # Return user profile
         return jsonify({
             "user": user,
             "usage": {
+                "subscription_status": subscription.get("status"),
+                "subscription_starts": subscription.get("start_date"),
                 "monthly_requests": today_count,
                 "remaining_requests": user.get("max_requests_per_month", 20) - today_count,
-                "plan_limit": user.get("max_requests_per_month", 20)
+                "plan_limit": user.get("max_requests_per_month", 20),
+                "credit_requests": user.get("credit_requests", 0)
             },
-            "devices": devices
         }), 200
         
     except Exception as e:
@@ -83,17 +87,6 @@ def update_profile():
         logger.error(f"Error in update_profile route: {str(e)}")
         return jsonify({"error": "An error occurred updating profile"}), 500
 
-@user_routes.route('/devices', methods=['GET'])
-@login_required
-def get_devices():
-    """Get user's registered devices"""
-    try:
-        devices = Device.get_user_devices(g.user_id)
-        return jsonify(devices), 200
-        
-    except Exception as e:
-        logger.error(f"Error in get_devices route: {str(e)}")
-        return jsonify({"error": "An error occurred fetching devices"}), 500
 
 @user_routes.route('/usage', methods=['GET'])
 @login_required

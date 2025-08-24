@@ -32,7 +32,7 @@ DEV_DOMAIN = "textextract-dev.onrender.com"
 PROD_DOMAIN = "textextract.onrender.com"
 
 # Frontend URLs
-DEV_FRONTEND_DOMAIN = "textextract1.onrender.com"
+DEV_FRONTEND_DOMAIN = "localhost:3000"
 PROD_FRONTEND_DOMAIN = "textextract1.onrender.com"  # Update this if your frontend URL is different
 
 # Update system configuration

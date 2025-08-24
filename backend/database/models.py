@@ -21,11 +21,9 @@ class User:
             # Get plan details
             plan = SubscriptionPlan.get_by_name(plan_type)
             max_requests = 20  # Default free tier value
-            device_limit = 2   # Default free tier value
             
             if plan:
                 max_requests = plan.get("max_requests_per_month", 20)
-                device_limit = plan.get("device_limit", 2)
               # Create user in Supabase
             response = supabase.table("users").insert({
                 "email": email,
@@ -33,7 +31,6 @@ class User:
                 "full_name": full_name,
                 "plan_type": plan_type,
                 "max_requests_per_month": max_requests,
-                "device_limit": device_limit,
                 "email_verified": True,  # User is verified when created
                 "created_at": datetime.datetime.now().isoformat(),
                 "updated_at": datetime.datetime.now().isoformat()
@@ -41,16 +38,25 @@ class User:
             
             if len(response.data) > 0:
                 user = response.data[0]
+
+                subscription_start = datetime.datetime.now().isoformat()
+                
+        
+                # Default to 1 month subscription
+                end_date = datetime.datetime.now() + datetime.timedelta(days=30)
+                subscription_end = end_date.isoformat()
                 
                 # Create free subscription entry if successful
                 if plan:
                     Subscription.create(
                         user_id=user["id"],
                         plan_id=plan["id"],
-                        status="active",
-                        start_date=datetime.datetime.now().isoformat()
+                        status="active" if plan_type != "free" else "free_tier",
+                        start_date=subscription_start,
+                        end_date=subscription_end if subscription_end else None,
+                        renewal_date=subscription_end if subscription_end else None,
                     )
-                
+    
                 return user
             return None
             
@@ -91,7 +97,21 @@ class User:
             }).eq("id", user_id).execute()
         except Exception as e:
             logger.error(f"Error updating last login: {str(e)}")
-    
+
+    @staticmethod
+    def update_credit_requests(user_id, amount):
+        """Update the user's credit requests"""
+        try:
+            user = User.get_by_id(user_id)
+            credit_requests = user.get("credit_requests", 0)
+            user = supabase.table("users").update({
+                "credit_requests": credit_requests + amount
+            }).eq("id", user_id).execute()
+            return user
+        except Exception as e:
+            logger.error(f"Error updating credit requests: {str(e)}")
+            return None
+
     @staticmethod
     def verify_password(user, password):
         """Verify password against stored hash"""
@@ -117,9 +137,9 @@ class User:
             
             # Get the last day by finding the first day of next month and subtracting one day
             if month == 12:
-                last_day = datetime.date(year + 1, 1, 1) - datetime.timedelta(days=1)
+                last_day = datetime.date(year + 1, 1, 1)
             else:
-                last_day = datetime.date(year, month + 1, 1) - datetime.timedelta(days=1)
+                last_day = datetime.date(year, month + 1, 1)
             
             # Query the database for the sum of requests in the date range
             response = supabase.table("usage_stats") \
@@ -182,7 +202,7 @@ class User:
                     period_start = datetime.date(today.year - 1, 12, start_day)
                 else:
                     period_start = datetime.date(today.year, today.month - 1, start_day)
-                period_end = datetime.date(today.year, today.month, start_day) - datetime.timedelta(days=1)
+                period_end = datetime.date(today.year, today.month, start_day)
             else:
                 # Period is from start_day of current month to day before start_day of next month
                 period_start = datetime.date(today.year, today.month, start_day)
@@ -190,7 +210,7 @@ class User:
                     next_month_date = datetime.date(today.year + 1, 1, start_day)
                 else:
                     next_month_date = datetime.date(today.year, today.month + 1, start_day)
-                period_end = next_month_date - datetime.timedelta(days=1)
+                period_end = next_month_date
             
             # Handle edge cases for months with different numbers of days
             # If the start_day is beyond the last day of a month, use the last day of that month
@@ -245,120 +265,88 @@ class User:
                 if subscription.get("end_date"):
                     end_date = datetime.datetime.fromisoformat(subscription["end_date"].replace("Z", "+00:00"))
                     if end_date < datetime.datetime.now(datetime.timezone.utc):
-                        # Check if in grace period
-                        if Subscription.is_in_grace_period(subscription):
-                            # Allow requests during grace period
-                            logger.info(f"User {user_id} is in grace period, allowing request")
-                        else:
-                            # Subscription expired and not in grace period
-                            return False
+                        return False
             
             # Get max requests allowed per month
             max_requests = user.get("max_requests_per_month", 20)
+            credit_requests = user.get("credit_requests")
             
             # Get current request count for the subscription period instead of calendar month
             current_count = User.get_subscription_period_request_count(user_id, sub_details)
             
-            # Check if user is within limits
-            return current_count < max_requests
+            if current_count < max_requests:
+                return True
+            elif credit_requests > 0:
+                # Allow one-time request using credit
+                return User.decrement_credit_requests(user_id)
+            else:
+                # No more credits available
+                return False
+               
         except Exception as e:
             logger.error(f"Error checking if user can make request: {str(e)}")
             return False
+        
+    @staticmethod
+    def decrement_credit_requests(user_id):
+        """Decrement the user's credit requests by 1"""
+        try:
+            user = User.get_by_id(user_id)
+            if not user:
+                return False
+
+            credit_requests = user.get("credit_requests", 0)
+            if credit_requests > 0:
+                credit_requests = credit_requests - 1
+                supabase.table("users").update({
+                  "credit_requests": credit_requests
+                }).eq("id", user_id).execute()
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error decrementing credit requests: {str(e)}")
+            return False
 
     @staticmethod
-    def update_subscription(user_id, plan_type, subscription_id=None, subscription_start=None, subscription_end=None):
+    def update_subscription(user_id, plan_id, subscription_id=None, subscription_start=None, subscription_end=None):
         """Update user subscription information"""
         try:
             # Get plan details
-            plan = SubscriptionPlan.get_by_name(plan_type)
+            plan = SubscriptionPlan.get_by_id(plan_id)
             if not plan:
-                logger.error(f"Plan type {plan_type} not found")
+                logger.error(f"Plan ID {plan_id} not found")
                 return False
-                
-            # Set defaults if not provided
-            if subscription_start is None:
-                subscription_start = datetime.datetime.now().isoformat()
-                
-            if subscription_end is None and plan_type != "free":
-                # Default to 1 month subscription
-                end_date = datetime.datetime.now() + datetime.timedelta(days=30)
-                subscription_end = end_date.isoformat()
-            
-            # First update the user's plan_type and related fields
+
+            # First update the user's plan_id and related fields
             update_data = {
-                "plan_type": plan_type,
+                "plan_type": plan.get('name'),
                 "max_requests_per_month": plan.get("max_requests_per_month", 20),
-                "device_limit": plan.get("device_limit", 2),
                 "updated_at": datetime.datetime.now().isoformat()
             }
             
             response = supabase.table("users").update(update_data).eq("id", user_id).execute()
+
+            print(response.data)
             
             if len(response.data) == 0:
                 logger.error(f"User with ID {user_id} not found")
                 return None
-            
-            # Create or update subscription entry
-            subscription = Subscription.create(
-                user_id=user_id,
-                plan_id=plan["id"],
-                status="active" if plan_type != "free" else "free_tier",
-                start_date=subscription_start,
-                end_date=subscription_end if subscription_end else None,
-                renewal_date=subscription_end if subscription_end else None,
-                external_subscription_id=subscription_id if subscription_id else None
-            )
-            
-            if subscription:
-                return response.data[0]
-            return None
+          
+            return response.data[0]
             
         except Exception as e:
             logger.error(f"Error updating user subscription: {str(e)}")
             return None
-    
-    @staticmethod
-    def get_device_count(user_id):
-        """Get the number of devices registered for a user"""
-        try:
-            response = supabase.table("devices").select("id", count="exact").eq("user_id", user_id).eq("status", "active").execute()
-            return response.count
-        except Exception as e:
-            logger.error(f"Error getting device count: {str(e)}")
-            return 0
-
-    @staticmethod
-    def can_register_device(user_id):
-        """Check if user can register a new device based on their plan limits"""
-        try:
-            # Get user and their plan
-            user = User.get_by_id(user_id)
-            if not user:
-                return False
-            
-            # Get device limit
-            device_limit = user.get("device_limit", 2)
-            
-            # Get current device count
-            device_count = User.get_device_count(user_id)
-            
-            # Check if user is within limits
-            return device_count < device_limit
-        except Exception as e:
-            logger.error(f"Error checking if user can register device: {str(e)}")
-            return False
 
 
 class ApiRequest:
     """Model for tracking API requests"""
     
     @staticmethod
-    def create(user_id, request_type, ip_address=None, user_agent=None, device_info=None):
+    def create(user_id, request_type, ip_address=None, user_agent=None):
         """Create a new API request record"""
         try:
-            # Convert device_info to JSON if it's a dictionary
-            if isinstance(device_info, dict):
-                device_info = json.dumps(device_info)
+           
             
             request_data = {
                 "user_id": user_id,
@@ -367,7 +355,6 @@ class ApiRequest:
                 "status": "pending",
                 "ip_address": ip_address,
                 "user_agent": user_agent,
-                "device_info": device_info
             }
             
             response = supabase.table("api_requests").insert(request_data).execute()
@@ -438,90 +425,21 @@ class ApiRequest:
             logger.error(f"Error updating usage stats: {str(e)}")
 
 
-class Device:
-    """Model for tracking user devices"""
-    
-    @staticmethod
-    def register(user_id, device_identifier, device_info=None):
-        """Register a device for a user"""
-        try:
-            # Check if device already exists
-            response = supabase.table("devices").select("*").eq("user_id", user_id).eq("device_identifier", device_identifier).execute()
-            
-            if len(response.data) > 0:
-                # Update existing device
-                device_id = response.data[0]["id"]
-                
-                update_data = {
-                    "last_active": datetime.datetime.now().isoformat()
-                }
-                
-                # Update device info if provided
-                if device_info:
-                    if "device_name" in device_info:
-                        update_data["device_name"] = device_info["device_name"]
-                    if "device_type" in device_info:
-                        update_data["device_type"] = device_info["device_type"]
-                    if "os_name" in device_info:
-                        update_data["os_name"] = device_info["os_name"]
-                    if "os_version" in device_info:
-                        update_data["os_version"] = device_info["os_version"]
-                    if "app_version" in device_info:
-                        update_data["app_version"] = device_info["app_version"]
-                
-                supabase.table("devices").update(update_data).eq("id", device_id).execute()
-                return device_id
-            else:
-                # Check if user can register a new device
-                if not User.can_register_device(user_id):
-                    logger.warning(f"User {user_id} attempted to register a new device but has reached their device limit")
-                    return None
-                
-                # Create new device
-                device_data = {
-                    "user_id": user_id,
-                    "device_identifier": device_identifier,
-                    "created_at": datetime.datetime.now().isoformat(),
-                    "last_active": datetime.datetime.now().isoformat(),
-                    "status": "active"
-                }
-                
-                # Add device info if provided
-                if device_info:
-                    if "device_name" in device_info:
-                        device_data["device_name"] = device_info["device_name"]
-                    if "device_type" in device_info:
-                        device_data["device_type"] = device_info["device_type"]
-                    if "os_name" in device_info:
-                        device_data["os_name"] = device_info["os_name"]
-                    if "os_version" in device_info:
-                        device_data["os_version"] = device_info["os_version"]
-                    if "app_version" in device_info:
-                        device_data["app_version"] = device_info["app_version"]
-                
-                response = supabase.table("devices").insert(device_data).execute()
-                
-                if len(response.data) > 0:
-                    return response.data[0]["id"]
-                return None
-        except Exception as e:
-            logger.error(f"Error registering device: {str(e)}")
-            return None
-    
-    @staticmethod
-    def get_user_devices(user_id):
-        """Get all devices for a user"""
-        try:
-            response = supabase.table("devices").select("*").eq("user_id", user_id).execute()
-            return response.data
-        except Exception as e:
-            logger.error(f"Error getting user devices: {str(e)}")
-            return [] 
-
-
 class Subscription:
     """Model for user subscriptions"""
     
+    @staticmethod
+    def get_by_id(subscription_id):
+        """Get a subscription by ID"""
+        try:
+            response = supabase.table("subscriptions").select("*").eq("id", subscription_id).execute()
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error getting subscription by ID {subscription_id}: {str(e)}")
+            return None
+
     @staticmethod
     def create(user_id, plan_id, status="active", start_date=None, end_date=None, renewal_date=None, external_subscription_id=None, auto_renewal=False):
         """Create a new subscription record"""
@@ -544,32 +462,7 @@ class Subscription:
             
             if renewal_date is None and not is_free_plan:
                 renewal_date = end_date
-            
-            # Check if there's an existing active subscription for this user
-            current_sub = Subscription.get_active_subscription(user_id)
-            if current_sub:
-                # If upgrading to the same plan, just extend dates
-                if current_sub["plan_id"] == plan_id and not is_free_plan:
-                    update_data = {
-                        "status": status,
-                        "updated_at": now.isoformat()
-                    }
-                    
-                    if end_date:
-                        update_data["end_date"] = end_date
-                    
-                    if renewal_date:
-                        update_data["renewal_date"] = renewal_date
-                    
-                    if external_subscription_id:
-                        update_data["external_subscription_id"] = external_subscription_id
-                    
-                    response = supabase.table("subscriptions").update(update_data).eq("id", current_sub["id"]).execute()
-                    if len(response.data) > 0:
-                        return response.data[0]
-                else:
-                    # If switching plans, cancel the current subscription
-                    Subscription.cancel_subscription(current_sub["id"])
+
             
             # Create a new subscription
             subscription_data = {
@@ -600,22 +493,90 @@ class Subscription:
         except Exception as e:
             logger.error(f"Error creating subscription: {str(e)}")
             return None
-    
+        
+    @staticmethod
+    def update(subscription_id, user_id, plan_id, status="active", start_date=None, end_date=None, renewal_date=None, external_subscription_id=None, auto_renewal=False):
+        """Update an existing subscription record"""
+        try:
+            if start_date is None:
+                start_date = datetime.datetime.now().isoformat()
+            
+            now = datetime.datetime.now()
+            
+            # For non-free plans, set default end and renewal dates if not provided
+            is_free_plan = False
+            plan = SubscriptionPlan.get_by_id(plan_id)
+            if plan and plan.get("price", 0) == 0:
+                is_free_plan = True
+                
+            if end_date is None and not is_free_plan:
+                # Default to 1 month subscription
+                end_date = (now + datetime.timedelta(days=30)).isoformat()
+            
+            if renewal_date is None and not is_free_plan:
+                renewal_date = end_date
+            if external_subscription_id is None:
+                external_subscription_id = None
+            update_data = {
+                "user_id": user_id,
+                "plan_id": plan_id,
+                "status": status,
+                "start_date": start_date,
+                "auto_renewal": auto_renewal
+            }
+            if end_date:
+                update_data["end_date"] = end_date
+            
+            if renewal_date:
+                update_data["renewal_date"] = renewal_date
+            
+            if external_subscription_id:
+                update_data["external_subscription_id"] = external_subscription_id
+
+            response = supabase.table("subscriptions").update(update_data).eq("id", subscription_id).execute()
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error updating subscription: {str(e)}")
+            return None
+        
+    @staticmethod
+    def renew_subscription(start_date=None, end_date=None, renewal_date=None, external_subscription_id=None, auto_renewal=False):
+        """Update an existing subscription record"""
+        try:
+
+            if start_date is None or end_date is None or external_subscription_id is None:
+                logger.error("Missing required fields for subscription update")
+                return None
+
+            update_data = {}
+            if start_date:
+                update_data["start_date"] = start_date
+
+            if end_date:
+                update_data["end_date"] = end_date
+            
+            if renewal_date:
+                update_data["renewal_date"] = renewal_date
+
+            response = supabase.table("subscriptions").update(update_data).eq("external_subscription_id", external_subscription_id).execute()
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error updating subscription: {str(e)}")
+            return None
+
     @staticmethod
     def get_active_subscription(user_id):
         """Get the active subscription for a user"""
         try:
-            response = supabase.table("subscriptions").select("*").eq("user_id", user_id).eq("status", "active").execute()
+            response = supabase.table("subscriptions").select("*").eq("user_id", user_id).execute()
             
             if len(response.data) > 0:
                 return response.data[0]
             
-            # Also check for free tier subscription
-            response = supabase.table("subscriptions").select("*").eq("user_id", user_id).eq("status", "free_tier").execute()
-            
-            if len(response.data) > 0:
-                return response.data[0]
-                
             return None
         except Exception as e:
             logger.error(f"Error getting active subscription: {str(e)}")
@@ -625,11 +586,21 @@ class Subscription:
     def cancel_subscription(subscription_id):
         """Cancel a subscription"""
         try:
-            update_data = {
-                "status": "cancelled",
-                "updated_at": datetime.datetime.now().isoformat()
-            }
             
+
+            plan = SubscriptionPlan.get_by_name("free")
+
+            subscription_start = datetime.datetime.now().isoformat()
+
+            update_data = {
+                "status": "free_tier",
+                "plan_id": plan["id"],
+                "updated_at": datetime.datetime.now().isoformat(),
+                "start_date": subscription_start,
+                "end_date": None,
+                "renewal_date": None
+            }
+
             response = supabase.table("subscriptions").update(update_data).eq("id", subscription_id).execute()
             
             if len(response.data) > 0:
@@ -694,123 +665,15 @@ class Subscription:
             return None
         
     @staticmethod
-    def check_renewal(subscription_id):
-        """
-        Check if a subscription should be renewed. Returns True if renewal was successful,
-        False if renewal failed or wasn't needed.
-        """
+    def get_subscription_by_external_sub_id(external_sub_id):
         try:
-            # Get subscription
-            response = supabase.table("subscriptions").select("*").eq("id", subscription_id).execute()
-            if len(response.data) == 0:
-                logger.error(f"Subscription {subscription_id} not found")
-                return False
-                
-            subscription = response.data[0]
-            
-            # Check if subscription has auto-renewal enabled
-            if not subscription.get("auto_renewal", False):
-                return False
-                
-            # Check if subscription needs renewal (1 day before expiry to ensure no service interruption)
-            if not subscription.get("renewal_date"):
-                return False
-                
-            renewal_date = datetime.datetime.fromisoformat(subscription["renewal_date"].replace("Z", "+00:00"))
-            now = datetime.datetime.now(datetime.timezone.utc)
-            
-            # If renewal date is within 24 hours, try to renew
-            if (renewal_date - now).total_seconds() <= 86400:  # 24 hours in seconds
-                return Subscription.process_auto_renewal(subscription)
-                
-            return False
+            response = supabase.table("subscriptions").select("*").eq("external_subscription_id", external_sub_id).execute()
+            if len(response.data) > 0:
+                return response.data[0]
+            return None
         except Exception as e:
-            logger.error(f"Error checking subscription renewal: {str(e)}")
-            return False
-    
-    @staticmethod
-    def process_auto_renewal(subscription):
-        """
-        Process auto-renewal for a subscription using stored payment method.
-        Returns True if renewal was successful, False otherwise.
-        """
-        try:
-            from payment.stripe_client import StripeClient
-            
-            user_id = subscription["user_id"]
-            plan_id = subscription["plan_id"]
-            
-            # Get plan details
-            plan = SubscriptionPlan.get_by_id(plan_id)
-            if not plan:
-                logger.error(f"Plan {plan_id} not found for auto-renewal")
-                return False
-                
-            # Get user's payment method
-            payment_method = Subscription.get_user_payment_method(user_id)
-            if not payment_method:
-                logger.error(f"No payment method found for user {user_id}")
-                # Mark subscription as payment_failed
-                Subscription.update_status(subscription["id"], "payment_failed")
-                Subscription.send_renewal_failure_notification(user_id, subscription["id"])
-                return False
-                
-            # Process payment with Stripe
-            stripe_client = StripeClient()
-            payment_result = stripe_client.charge_subscription(
-                user_id=user_id,
-                payment_method_id=payment_method["id"],
-                amount=plan["price"],
-                currency=plan["currency"],
-                description=f"Auto-renewal for {plan['name']} plan"
-            )
-            
-            if not payment_result.get("success"):
-                # Payment failed
-                logger.error(f"Auto-renewal payment failed for user {user_id}: {payment_result.get('error')}")
-                Subscription.update_status(subscription["id"], "payment_failed")
-                Subscription.send_renewal_failure_notification(user_id, subscription["id"])
-                return False
-                
-            # Payment successful, extend subscription
-            now = datetime.datetime.now(datetime.timezone.utc)
-            new_end_date = now + datetime.timedelta(days=30) # Default to 1 month
-            
-            if plan.get("interval") == "year":
-                new_end_date = now + datetime.timedelta(days=365)
-            
-            # Update subscription
-            update_data = {
-                "status": "active",
-                "start_date": now.isoformat(),
-                "end_date": new_end_date.isoformat(),
-                "renewal_date": new_end_date.isoformat(),
-                "updated_at": now.isoformat(),
-                "payment_status": "paid",
-                "last_payment_date": now.isoformat()
-            }
-            
-            supabase.table("subscriptions").update(update_data).eq("id", subscription["id"]).execute()
-            
-            # Create payment transaction record
-            PaymentTransaction.create(
-                user_id=user_id,
-                plan_id=plan_id,
-                amount=plan["price"],
-                currency=plan["currency"],
-                payment_provider="stripe",
-                transaction_id=payment_result.get("transaction_id"),
-                status="completed"
-            )
-            
-            # Send renewal success notification
-            Subscription.send_renewal_success_notification(user_id, subscription["id"])
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error processing auto-renewal: {str(e)}")
-            return False
+            logger.error(f"Error getting subscription by External Sub ID {external_sub_id}: {str(e)}")
+            return None
     
     @staticmethod
     def get_user_payment_method(user_id):
@@ -831,59 +694,7 @@ class Subscription:
         except Exception as e:
             logger.error(f"Error getting user payment method: {str(e)}")
             return None
-    
-    @staticmethod
-    def send_renewal_success_notification(user_id, subscription_id):
-        """Send notification about successful subscription renewal"""
-        try:
-            # In a real implementation, this would send an email
-            # For now, just log it
-            logger.info(f"Subscription {subscription_id} renewed successfully for user {user_id}")
-            
-            # TODO: Implement actual email notification
-        except Exception as e:
-            logger.error(f"Error sending renewal success notification: {str(e)}")
-    
-    @staticmethod
-    def send_renewal_failure_notification(user_id, subscription_id):
-        """Send notification about failed subscription renewal"""
-        try:
-            # In a real implementation, this would send an email
-            # For now, just log it
-            logger.error(f"Subscription {subscription_id} renewal failed for user {user_id}")
-            
-            # TODO: Implement actual email notification
-        except Exception as e:
-            logger.error(f"Error sending renewal failure notification: {str(e)}")
-    
-    @staticmethod
-    def is_in_grace_period(subscription):
-        """
-        Check if a subscription is in grace period after expiration.
-        Returns True if in grace period, False otherwise.
-        """
-        try:
-            # If subscription is not expired or not in payment_failed status, there's no grace period
-            if subscription.get("status") not in ["expired", "payment_failed"]:
-                return False
-                
-            # Check if there's an end date
-            if not subscription.get("end_date"):
-                return False
-                
-            # Parse the end date
-            end_date = datetime.datetime.fromisoformat(subscription["end_date"].replace("Z", "+00:00"))
-            now = datetime.datetime.now(datetime.timezone.utc)
-            
-            # Grace period is 7 days after expiration
-            grace_period_end = end_date + datetime.timedelta(days=3)
-            
-            # Check if current time is within grace period
-            return now <= grace_period_end
-        except Exception as e:
-            logger.error(f"Error checking grace period: {str(e)}")
-            return False
-        
+
 
 class SubscriptionPlan:
     """Model for subscription plans"""
@@ -923,75 +734,6 @@ class SubscriptionPlan:
             return None
 
 
-class PaymentTransaction:
-    """Model for payment transactions"""
-    
-    @staticmethod
-    def create(user_id, plan_id, amount, currency="USD", payment_provider="paypal", transaction_id=None, status="pending", payload=None):
-        """Create a new payment transaction"""
-        try:
-            transaction_data = {
-                "user_id": user_id,
-                "plan_id": plan_id,
-                "amount": amount,
-                "currency": currency,
-                "payment_provider": payment_provider,
-                "status": status,
-                "created_at": datetime.datetime.now().isoformat(),
-                "updated_at": datetime.datetime.now().isoformat()
-            }
-            
-            if transaction_id:
-                transaction_data["transaction_id"] = transaction_id
-                
-            if payload:
-                if isinstance(payload, dict):
-                    transaction_data["payload"] = payload
-                else:
-                    transaction_data["payload"] = json.loads(payload)
-            
-            response = supabase.table("payment_transactions").insert(transaction_data).execute()
-            
-            if len(response.data) > 0:
-                return response.data[0]
-            return None
-        except Exception as e:
-            logger.error(f"Error creating payment transaction: {str(e)}")
-            return None
-    @staticmethod
-    def update_status(transaction_id, status, transaction_external_id=None, payment_provider=None):
-        """Update status of a payment transaction"""
-        try:
-            update_data = {
-                "status": status,
-                "updated_at": datetime.datetime.now().isoformat()
-            }
-            
-            if transaction_external_id:
-                update_data["transaction_id"] = transaction_external_id
-                
-            if payment_provider:
-                update_data["payment_provider"] = payment_provider
-                
-            response = supabase.table("payment_transactions").update(update_data).eq("id", transaction_id).execute()
-            
-            if len(response.data) > 0:
-                return response.data[0]
-            return None
-        except Exception as e:
-            logger.error(f"Error updating payment transaction: {str(e)}")
-            return None
-    @staticmethod
-    def get_user_transactions(user_id, limit=10, offset=0):
-        """Get user's payment transactions"""
-        try:
-            response = supabase.table("payment_transactions").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit).offset(offset).execute()
-            return response.data
-        except Exception as e:
-            logger.error(f"Error getting user payment transactions: {str(e)}")
-            return []
-            
-            
 class UserReview:
     """User Review model for managing user feedback"""
     

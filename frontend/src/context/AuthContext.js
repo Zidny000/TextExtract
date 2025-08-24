@@ -13,7 +13,7 @@ const axiosAuth = api;
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
+  const [authUser, setAuthUser] = useState(null);
   const [token, setToken] = useState(null);
   const [refreshToken, setRefreshToken] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -85,9 +85,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   // Refresh access token
-  const refreshAccessToken = async () => {
-
-    
+  const refreshAccessToken = async () => {    
     
     if (refreshingToken) return false;
    
@@ -156,7 +154,7 @@ export const AuthProvider = ({ children }) => {
           } else if (storedUser) {
             // If refresh succeeds, set user from storage
             try {
-              setUser(JSON.parse(storedUser));
+              setAuthUser(JSON.parse(storedUser));
             } catch (e) {
               console.error("Error parsing stored user:", e);
             }
@@ -168,7 +166,7 @@ export const AuthProvider = ({ children }) => {
           
           if (storedUser) {
             try {
-              setUser(JSON.parse(storedUser));
+              setAuthUser(JSON.parse(storedUser));
             } catch (e) {
               console.error("Error parsing stored user:", e);
             }
@@ -223,7 +221,7 @@ export const AuthProvider = ({ children }) => {
       // Save to state
       setToken(token);
       setRefreshToken(refresh_token);
-      setUser(user);
+      setAuthUser(user);
 
       // Save to local storage
       localStorage.setItem(TOKEN_KEY, token);
@@ -262,7 +260,7 @@ export const AuthProvider = ({ children }) => {
       // Clear state
       setToken(null);
       setRefreshToken(null);
-      setUser(null);
+      setAuthUser(null);
 
       // Clear localStorage
       localStorage.removeItem(TOKEN_KEY);
@@ -288,7 +286,7 @@ export const AuthProvider = ({ children }) => {
 
   // Create a value object with all the auth context
   const value = {
-    user,
+    authUser,
     token,
     loading,
     signup,

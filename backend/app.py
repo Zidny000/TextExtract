@@ -11,7 +11,6 @@ from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
 from database import db_init
 from routes import init_routes
-from scheduler import init_scheduler, scheduler
 
 # Load environment variables from .env file
 load_dotenv()
@@ -19,7 +18,7 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app, resources={
     r"/*": {
-        "origins": ["*"], 
+        "origins": ["http://localhost:3000","https://textextract1.onrender.com/"], 
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization", "X-CSRF-TOKEN", "X-Device-ID"],
         "supports_credentials": True,  # Important for cookies/auth
@@ -34,6 +33,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Set httpx logger to WARNING level to suppress INFO logs
+logging.getLogger('httpx').setLevel(logging.WARNING)
 
 # Setup rate limiting
 limiter = Limiter(
@@ -143,14 +145,7 @@ def root():
         "version": "1.0.0"
     })
 
-# Initialize the background scheduler for subscription checks and other automated tasks
-try:
-    init_scheduler()
-    # Register a function to shut down the scheduler when the app exits
-    atexit.register(lambda: scheduler.shutdown())
-    logger.info("Background scheduler initialized successfully")
-except Exception as e:
-    logger.error(f"Scheduler initialization error: {str(e)}")
+
 
 if __name__ == '__main__':
     # For development only - use a production WSGI server in production

@@ -10,7 +10,7 @@ import StripeService from '../services/StripeService';
 const SubscriptionSuccess = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, axiosAuth } = useAuth();
+  const { authUser, axiosAuth } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
@@ -30,15 +30,14 @@ const SubscriptionSuccess = () => {
         // Get URL parameters
         const queryParams = new URLSearchParams(location.search);
         const sessionId = queryParams.get('session_id');
-        const transactionId = queryParams.get('transaction_id');
         
-        if (!sessionId || !transactionId) {
+        if (!sessionId) {
           setError('Invalid payment information. Missing required parameters.');
           return;
         }
         
         // Verify the payment with our backend
-        const result = await StripeService.verifyPayment(sessionId, transactionId);
+        const result = await StripeService.verifyPayment(sessionId);
         
         if (result.success) {
           setSuccess(true);
@@ -53,10 +52,10 @@ const SubscriptionSuccess = () => {
       }
     };
     
-    if (user) {
+    if (authUser) {
       processPayment();
     }
-  }, [location.search, user, axiosAuth]);
+  }, [location.search, authUser, axiosAuth]);
   
   const handleContinue = () => {
     navigate('/subscription');
@@ -98,7 +97,7 @@ const SubscriptionSuccess = () => {
                 Payment Successful!
               </Typography>
               <Typography variant="body1" paragraph>
-                Thank you for your subscription. Your account has been upgraded successfully.
+                Thank you for your purchase. Your account has been upgraded successfully.
               </Typography>
               <Button 
                 variant="contained" 

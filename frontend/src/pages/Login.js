@@ -25,7 +25,7 @@ function Login() {
   
   const location = useLocation();
   const navigate = useNavigate();
-  const { login, isAuthenticated, user, axiosAuth, loading } = useAuth();
+  const { login, isAuthenticated, authUser, axiosAuth, loading } = useAuth();
 
   // Get the redirect URL from location state (if navigated from a protected route)
   const from = location.state?.from || '/profile';
@@ -45,18 +45,18 @@ function Login() {
       });
     }
     console.log('isAuthenticated', isAuthenticated())
-    if(isAuthenticated() && isDesktopAuth && user) {
+    if(isAuthenticated() && isDesktopAuth && authUser) {
       alreadyLoggedIn();
     }
     if(isAuthenticated() && !isDesktopAuth) {
       navigate(from, { replace: true });
     }
-  }, [location,loading,user]);
+  }, [location,loading,authUser]);
 
 
   const alreadyLoggedIn = async () => {
     const response = await axiosAuth.post(`/auth/direct-web-login`, {
-      email:user.email,
+      email:authUser.email,
       redirect_uri: redirectParams.redirect_uri,
       device_id: redirectParams.device_id,
       state: redirectParams.state
@@ -171,8 +171,8 @@ function Login() {
               type="submit"
               fullWidth
               variant="contained"
+              disabled={loadingButton}
               sx={{ mt: 3, mb: 2 }}
-              disabled={loading}
             >
               {loadingButton ? <CircularProgress size={24} /> : 'Sign In'}
             </Button>

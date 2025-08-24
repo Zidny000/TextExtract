@@ -1,3 +1,4 @@
+import { sub } from 'date-fns';
 import { api, API_URL } from './api';
 
 class StripeService {
@@ -26,10 +27,11 @@ class StripeService {
   }
 
   // Create a Stripe checkout session for a transaction
-  async createCheckoutSession(transactionId) {
+  async createCheckoutSession(stripePriceId, planId) {
     try {
       const response = await this.axiosInstance.post('/stripe/create-checkout', {
-        transaction_id: transactionId
+        stripe_price_id: stripePriceId,
+        plan_id: planId
       });
       return response.data;
     } catch (error) {
@@ -39,12 +41,11 @@ class StripeService {
   }
 
   // Verify a successful Stripe payment
-  async verifyPayment(sessionId, transactionId) {
+  async verifyPayment(sessionId) {
     try {
       const response = await this.axiosInstance.get(`/stripe/success`, {
         params: {
           session_id: sessionId,
-          transaction_id: transactionId
         }
       });
       return response.data;
@@ -98,9 +99,7 @@ class StripeService {
       
       if (response.data.success) {
         try {
-          // Now get the actual setup intent
-          const setupResponse = await this.axiosInstance.post('/stripe/create-setup-intent');
-          return setupResponse.data;
+          return response.data;
         } catch (setupError) {
           console.error('Error creating setup intent:', setupError);
           throw new Error('Failed to create payment setup intent');
@@ -125,6 +124,72 @@ class StripeService {
       console.error('Error verifying payment method update:', error);
       throw error;
     }
+  }
+
+  // Initiate a subscription upgrade
+  async initiateUpgrade(subscriptionId, planId, autoRenewal = false) {
+    try {
+      const response = await this.axiosInstance.post('/subscription/upgrade', {
+        subscription_id: subscriptionId,
+        plan_id: planId,
+        auto_renewal: autoRenewal
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error initiating subscription upgrade:', error);
+      throw error;
+    }
+  }
+
+  // Get all available subscription plans
+  async getPlans() {
+    try {
+      const response = await this.axiosInstance.get('/subscription/plans');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching subscription plans:', error);
+      throw error;
+    }
+  }
+
+  // Get current user plan details
+  async getUserPlan() {
+    try {
+      const response = await this.axiosInstance.get('/subscription/user-plan');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching user plan:', error);
+      throw error;
+    }
+  }
+
+  // Cancel a subscription
+  async cancelSubscription() {
+    try {
+      const response = await this.axiosInstance.post('/subscription/cancel');
+      return response.data;
+    } catch (error) {
+      console.error('Error cancelling subscription:', error);
+      throw error;
+    }
+  }
+
+  // Buy OCR credits
+  async buyCredit(amount, price) {
+    try {
+      if (!amount || !price) {
+        throw new Error('Amount and price are required to buy credits');
+      }
+      const response = await this.axiosInstance.post('/stripe/create-buy-credit-checkout', {
+        amount,
+        price
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error validating credit purchase:', error);
+      throw error;
+    }
+    
   }
 }
 
