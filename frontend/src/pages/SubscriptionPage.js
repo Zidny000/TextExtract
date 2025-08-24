@@ -129,7 +129,7 @@ const SubscriptionPage = () => {
 
   const handleUpgradeClick = (stripePriceId, planId, planName, price) => {
     // Check if user is logged in before showing the payment dialog
-    if (!user) {
+    if (!authUser) {
       // Redirect to login page with return URL set to subscription page
       navigate('/login', { state: { from: '/subscription' } });
       return;
@@ -445,10 +445,10 @@ const SubscriptionPage = () => {
           <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, alignItems: 'center', justifyContent: 'space-between' }}>
             <Box sx={{ mb: { xs: 2, md: 0 }, width: { xs: '100%', md: 'auto' } }}>
               <Typography variant="h6" gutterBottom>
-                Purchase Additional OCR Credits
+                Purchase OCR Credits
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Need more OCR requests? Purchase additional credits anytime.
+                Need OCR requests? Purchase credits anytime.
               </Typography>
               
               {/* OCR Credit Packages Dropdown */}

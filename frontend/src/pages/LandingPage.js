@@ -57,20 +57,24 @@ const LandingPage = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100">
       {/* Hero Section */}
       <div className="container mx-auto px-4 py-12 lg:py-16">
-        <div className="text-center max-w-4xl mx-auto">
+        <div className="text-center max-w-7xl mx-auto">
           <Badge variant="secondary" className="mb-4 px-4 py-2 text-sm font-medium">
             🚀 Now Available
           </Badge>
           
-          <h1 className="text-5xl lg:text-7xl font-bold bg-gradient-to-r from-slate-900 via-slate-800 to-slate-600 bg-clip-text text-transparent mb-6 leading-tight">
-            Welcome to TextExtract
+          <h1 className="text-3xl lg:text-5xl h-14 font-bold bg-gradient-to-r from-slate-900 via-slate-800 to-slate-600 bg-clip-text text-transparent mb-5 leading-tight">
+            Spend More Time on Understanding, Not on Typing
+          </h1>
+
+          <h1 className="text-3xl lg:text-5xl font-bold mb-7 leading-tight">
+            Saves Upto 80% of Your Time
           </h1>
           
           <p className="text-xl lg:text-2xl text-slate-600 mb-8 max-w-2xl mx-auto leading-relaxed">
-            Extract text from any video or screen with ease.
+            Extract text from any image, video or screen with ease
           </p>
 
-          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-12">
+          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-8">
 
              <a 
               href="https://github.com/Zidny000/textextract-releases/releases/download/v1.0.0/TextExtract_Setup.exe" 
@@ -100,7 +104,7 @@ const LandingPage = () => {
           </div>
 
           
-          <div className="flex items-center justify-center gap-2 text-sm text-slate-500">
+          <div className="flex items-center justify-center gap-2 text-md text-slate-500">
             <CheckCircle className="h-4 w-4 text-green-500" />
             <span>Free to try • No credit card required</span>
           </div>
@@ -111,10 +115,7 @@ const LandingPage = () => {
       <div className="container mx-auto px-4 py-12 lg:py-16">
         <div className="text-center mb-16">
           <h2 className="text-3xl lg:text-4xl font-bold text-slate-900 mb-4">
-            Spend More Time on Understanding, Not on Typing
-          </h2>
-          <h2 className="text-3xl lg:text-4xl font-bold text-slate-900 mb-4">
-            Saves Upto 80% of Your Time
+            Features to keep things simple but effective
           </h2>
           <p className="text-lg text-slate-600 max-w-2xl mx-auto">
             Powerful features designed to make text extraction seamless and efficient for professionals and everyday users alike.
